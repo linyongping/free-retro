@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS notes (
   column_key TEXT NOT NULL,
   text       TEXT NOT NULL,
   author     TEXT NOT NULL DEFAULT '',
+  owner_id   TEXT,                -- voter id of the creator; NULL = legacy, editable by anyone
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

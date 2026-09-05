@@ -164,8 +164,9 @@ export default {
           const { results: notes } = await env.DB.prepare(
             `SELECT n.id, n.column_key, n.text, n.author, n.created_at, n.updated_at,
                (SELECT COUNT(*) FROM votes v WHERE v.note_id = n.id) AS vote_count,
-               (SELECT COUNT(*) FROM votes v WHERE v.note_id = n.id AND v.voter = ?) AS voted
-             FROM notes n WHERE n.board_id = ? ORDER BY n.created_at ASC`
+               (SELECT COUNT(*) FROM votes v WHERE v.note_id = n.id AND v.voter = ?1) AS voted,
+               CASE WHEN n.owner_id IS NULL OR n.owner_id = ?1 THEN 1 ELSE 0 END AS mine
+             FROM notes n WHERE n.board_id = ?2 ORDER BY n.created_at ASC`
           )
             .bind(voter, boardId)
             .all();
@@ -236,30 +237,33 @@ export default {
         const column_key = (body.column_key || "").toString();
         const text = (body.text || "").toString().trim().slice(0, 500);
         const author = (body.author || "").toString().trim().slice(0, 40);
+        const voter = (body.voter || "").toString().slice(0, 64) || null;
         if (!COLUMNS.has(column_key)) return json({ error: "invalid_column" }, 400);
         if (!text) return json({ error: "invalid_text" }, 400);
 
         const id = rid(10);
         const now = Date.now();
         await env.DB.prepare(
-          "INSERT INTO notes (id, board_id, column_key, text, author, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+          "INSERT INTO notes (id, board_id, column_key, text, author, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
-          .bind(id, boardId, column_key, text, author, now, now)
+          .bind(id, boardId, column_key, text, author, voter, now, now)
           .run();
         return json(
-          { note: { id, column_key, text, author, created_at: now, updated_at: now, vote_count: 0, voted: 0 } },
+          { note: { id, column_key, text, author, created_at: now, updated_at: now, vote_count: 0, voted: 0, mine: voter ? 1 : 0 } },
           201
         );
       }
 
-      // ---- single note: edit / delete ----
+      // ---- single note: edit / delete (owner-locked; legacy notes stay open) ----
       if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)$/))) {
         const noteId = m[1];
-        const note = await env.DB.prepare("SELECT id FROM notes WHERE id = ?").bind(noteId).first();
+        const note = await env.DB.prepare("SELECT id, owner_id FROM notes WHERE id = ?").bind(noteId).first();
         if (!note) return json({ error: "note_not_found" }, 404);
 
         if (method === "PATCH") {
           const body = await readBody(request);
+          const voter = (body.voter || "").toString().slice(0, 64);
+          if (note.owner_id && note.owner_id !== voter) return json({ error: "not_allowed" }, 403);
           const text = (body.text || "").toString().trim().slice(0, 500);
           if (!text) return json({ error: "invalid_text" }, 400);
           await env.DB.prepare("UPDATE notes SET text = ?, updated_at = ? WHERE id = ?")
@@ -269,6 +273,8 @@ export default {
         }
 
         if (method === "DELETE") {
+          const voter = (url.searchParams.get("voter") || "").slice(0, 64);
+          if (note.owner_id && note.owner_id !== voter) return json({ error: "not_allowed" }, 403);
           await env.DB.batch([
             env.DB.prepare("DELETE FROM votes WHERE note_id = ?").bind(noteId),
             env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(noteId),

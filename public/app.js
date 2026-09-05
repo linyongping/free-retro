@@ -805,7 +805,7 @@ function buildColumn(col) {
     try {
       const { note } = await api(`/api/boards/${state.board.id}/notes`, {
         method: "POST",
-        body: { column_key: col.key, text, author: store.name },
+        body: { column_key: col.key, text, author: store.name, voter: store.voter },
       });
       note._entering = true;
       state.notes.push(note);
@@ -876,7 +876,8 @@ function noteCard(note) {
     onclick: () => toggleVote(note),
   }, h("span", { html: ICONS.heart }), note.vote_count > 0 ? String(note.vote_count) : "");
 
-  // edit (inline textarea)
+  // edit + delete are owner-only (server enforces 403; legacy notes are open)
+  const canModify = !!note.mine;
   const editBtn = h("button", { class: "tool-btn edit", title: "Edit note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
 
@@ -900,7 +901,8 @@ function noteCard(note) {
 
   card.append(
     textEl,
-    h("div", { class: "note-foot" }, author, h("span", { class: "note-tools" }, voteBtn, editBtn, delBtn)),
+    h("div", { class: "note-foot" }, author,
+      h("span", { class: "note-tools" }, voteBtn, canModify ? editBtn : null, canModify ? delBtn : null)),
   );
   delete note._entering;
   return card;
