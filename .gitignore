@@ -1,13 +1,4 @@
-# dependencies
 node_modules/
-
-# Cloudflare Wrangler local state
 .wrangler/
-
-# secrets (never commit)
 .dev.vars
-.env
-.env.*
-
-# macOS
 .DS_Store

@@ -122,6 +122,9 @@ async function route() {
   if (m) {
     state.route = { name: "board", id: m[1] };
     await loadBoard(m[1]);
+  } else if (hash.startsWith("#/admin")) {
+    state.route = { name: "admin" };
+    await renderAdmin();
   } else {
     state.route = { name: "home" };
     await renderHome();
@@ -203,7 +206,104 @@ async function renderHome() {
   } catch {
     listWrap.append(h("div", { class: "empty-hint" }, h("p", {}, "Couldn't load boards — is the server awake?")));
   }
-  root.append(h("div", { class: "home-foot" }, "free-retro · runs entirely on Cloudflare's free tier · your data lives in D1"));
+  root.append(
+    h("div", { class: "home-foot" },
+      "free-retro · runs entirely on Cloudflare's free tier · your data lives in D1 · ",
+      h("a", { href: "#/admin" }, "Manage boards"),
+    ),
+  );
+}
+
+// ---------- admin: manage boards ----------
+function shortDate(ts) {
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+async function renderAdmin() {
+  document.title = "Manage boards · Free Retro";
+  $app.replaceChildren(h("div", { class: "home" }));
+  const root = $app.firstChild;
+
+  root.append(
+    h("div", { class: "admin-head" },
+      h("a", { class: "back-link", href: "#/" }, h("span", { html: ICONS.back }), "All boards"),
+      h("h1", { class: "admin-title" }, "Manage boards"),
+      h("p", { class: "admin-sub" }, "Deleting a board permanently removes all of its notes and votes. There is no undo."),
+    ),
+  );
+
+  const listWrap = h("div");
+  root.append(listWrap);
+  try {
+    const { boards } = await api("/api/boards");
+    if (!boards.length) {
+      listWrap.append(
+        h("div", { class: "empty-hint" },
+          h("div", { class: "doodle" }, "No boards to manage"),
+          h("p", {}, "Create one from the home page first."),
+        ),
+      );
+      return;
+    }
+    listWrap.append(
+      h("div", { class: "section-label" }, `${boards.length} board${boards.length === 1 ? "" : "s"}`),
+      h("div", { class: "admin-list" }, ...boards.map(adminRow)),
+    );
+  } catch {
+    listWrap.append(h("div", { class: "empty-hint" }, h("p", {}, "Couldn't load boards — is the server awake?")));
+  }
+}
+
+function adminRow(b) {
+  const row = h("div", { class: "admin-row" });
+  const notesWord = `${b.note_count} note${b.note_count === 1 ? "" : "s"}`;
+
+  const delBtn = h("button", { class: "btn ghost admin-del", onclick: confirmBoardDelete }, "Delete");
+  let confirmTimer;
+  function confirmBoardDelete() {
+    if (delBtn.dataset.confirm) {
+      clearTimeout(confirmTimer);
+      deleteBoard();
+      return;
+    }
+    delBtn.dataset.confirm = "1";
+    delBtn.classList.add("confirm");
+    delBtn.textContent = `Sure? ${notesWord} gone`;
+    confirmTimer = setTimeout(() => {
+      delete delBtn.dataset.confirm;
+      delBtn.classList.remove("confirm");
+      delBtn.textContent = "Delete";
+    }, 3200);
+  }
+  async function deleteBoard() {
+    row.classList.add("deleting");
+    try {
+      await api(`/api/boards/${b.id}`, { method: "DELETE" });
+      setTimeout(() => {
+        row.remove();
+        const list = $app.querySelector(".admin-list");
+        if (list && !list.children.length) route(); // show the empty state
+      }, 200);
+      toast(`Deleted “${b.title}”`);
+    } catch {
+      row.classList.remove("deleting");
+      toast("Delete failed — try again");
+    }
+  }
+
+  row.append(
+    h("div", { class: "a-info" },
+      h("a", { class: "a-title", href: `#/b/${b.id}` }, b.title),
+      h("div", { class: "a-meta" },
+        `${notesWord} · created ${shortDate(b.created_at)} · active ${timeAgo(b.last_activity || b.created_at)}`,
+      ),
+    ),
+    h("div", { class: "a-actions" },
+      h("a", { class: "btn ghost", href: `#/b/${b.id}` }, "Open"),
+      delBtn,
+    ),
+  );
+  return row;
 }
 
 // ---------- silent-writing timer ----------
@@ -633,7 +733,12 @@ setInterval(async () => {
       if (titleEl) titleEl.textContent = data.board.title;
       document.title = `${data.board.title} · Free Retro`;
     }
-  } catch {
+  } catch (err) {
+    if (err && err.status === 404) {
+      toast("This board was deleted");
+      location.hash = "#/";
+      return;
+    }
     state.pollFailures++;
     if (state.pollFailures === 3) toast("Connection hiccup — retrying…");
   }

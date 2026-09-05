@@ -299,6 +299,62 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--ink-faint);
   font-size: 13px;
 }
+.home-foot a { color: inherit; text-decoration: underline dashed; text-underline-offset: 3px; }
+.home-foot a:hover { color: var(--accent); }
+
+/* ============================================================
+   Admin — manage boards
+   ============================================================ */
+.admin-head { margin-bottom: 30px; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  margin-bottom: 16px;
+  padding: 6px 10px;
+  border-radius: 7px;
+}
+.back-link:hover { background: rgba(255, 253, 244, 0.8); color: var(--ink); }
+.back-link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.admin-title { font-family: var(--font-marker); font-weight: 600; font-size: 48px; line-height: 1.05; margin: 0 0 8px; }
+.admin-sub { margin: 0; color: var(--ink-soft); font-size: 14.5px; }
+
+.admin-list { display: flex; flex-direction: column; gap: 14px; }
+.admin-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 2px rgba(84, 62, 18, 0.12), 0 8px 18px -10px rgba(84, 62, 18, 0.35);
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.15s ease;
+}
+.admin-row:hover { box-shadow: var(--shadow-note); }
+.admin-row.deleting { opacity: 0; transform: translateX(14px); }
+.admin-row .a-info { flex: 1; min-width: 0; }
+.admin-row .a-title {
+  display: block;
+  font-family: var(--font-hand);
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-row .a-title:hover { text-decoration: underline wavy rgba(201, 85, 61, 0.55) 1.5px; text-underline-offset: 4px; }
+.admin-row .a-meta { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); margin-top: 2px; }
+.admin-row .a-actions { display: flex; gap: 8px; flex: none; }
+.admin-row .a-actions .btn { padding: 7px 13px; font-size: 13px; }
+.admin-del.confirm { background: #b3361e; border-color: #b3361e; color: #fff; }
+.admin-del.confirm:hover { background: #922a16; }
 
 /* ============================================================
    Board page
@@ -790,4 +846,9 @@ input, textarea { font: inherit; color: inherit; }
   .board-title { font-size: 26px; }
   .topbar { flex-wrap: wrap; }
   .home { padding-top: 4vh; }
+}
+@media (max-width: 640px) {
+  .admin-row { flex-wrap: wrap; }
+  .admin-row .a-info { flex-basis: 100%; }
+  .admin-title { font-size: 38px; }
 }
