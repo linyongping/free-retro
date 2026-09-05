@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS boards (
   id             TEXT PRIMARY KEY,
   title          TEXT NOT NULL,
   created_at     INTEGER NOT NULL,
-  timer_ends_at  INTEGER              -- silent-writing countdown end (epoch ms), NULL = off
+  timer_ends_at  INTEGER,             -- silent-writing countdown end (epoch ms), NULL = off
+  deleted_at     INTEGER              -- soft delete (recycle bin), NULL = active
 );
 
 CREATE TABLE IF NOT EXISTS notes (

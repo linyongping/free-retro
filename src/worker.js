@@ -26,6 +26,25 @@ async function readBody(request) {
 }
 
 export default {
+  // daily cron: purge boards that have sat in the trash for 30 days
+  async scheduled(event, env, ctx) {
+    const cutoff = Date.now() - 30 * 864e5;
+    const { results } = await env.DB.prepare(
+      "SELECT id FROM boards WHERE deleted_at IS NOT NULL AND deleted_at < ?"
+    )
+      .bind(cutoff)
+      .all();
+    if (!results.length) return;
+    await env.DB.batch(
+      results.flatMap((b) => [
+        env.DB.prepare("DELETE FROM votes WHERE note_id IN (SELECT id FROM notes WHERE board_id = ?)").bind(b.id),
+        env.DB.prepare("DELETE FROM notes WHERE board_id = ?").bind(b.id),
+        env.DB.prepare("DELETE FROM boards WHERE id = ?").bind(b.id),
+      ])
+    );
+    console.log(`purged ${results.length} board(s) past the 30-day trash window`);
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -33,13 +52,17 @@ export default {
     let m;
 
     try {
-      // ---- boards collection ----
+      // ---- boards collection (active, or ?trash=1 for the recycle bin) ----
       if (path === "/api/boards" && method === "GET") {
+        const trash = url.searchParams.get("trash") === "1";
         const { results } = await env.DB.prepare(
-          `SELECT b.id, b.title, b.created_at,
+          `SELECT b.id, b.title, b.created_at, b.deleted_at,
              (SELECT COUNT(*) FROM notes n WHERE n.board_id = b.id) AS note_count,
              (SELECT MAX(n.updated_at) FROM notes n WHERE n.board_id = b.id) AS last_activity
-           FROM boards b ORDER BY COALESCE(last_activity, b.created_at) DESC LIMIT 100`
+           FROM boards b
+           WHERE b.deleted_at IS ${trash ? "NOT NULL" : "NULL"}
+           ORDER BY ${trash ? "b.deleted_at" : "COALESCE(last_activity, b.created_at)"} DESC
+           LIMIT 200`
         ).all();
         return json({ boards: results });
       }
@@ -58,10 +81,15 @@ export default {
       // ---- single board ----
       if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)$/))) {
         const boardId = m[1];
-        const board = await env.DB.prepare("SELECT id, title, created_at, timer_ends_at FROM boards WHERE id = ?")
+        const board = await env.DB.prepare("SELECT id, title, created_at, timer_ends_at, deleted_at FROM boards WHERE id = ?")
           .bind(boardId)
           .first();
         if (!board) return json({ error: "board_not_found" }, 404);
+        // trashed boards are invisible to the board page (GET) and renames (PATCH),
+        // but must stay reachable for the permanent-delete route below
+        if (board.deleted_at && (method === "GET" || method === "PATCH")) {
+          return json({ error: "board_not_found" }, 404);
+        }
 
         if (method === "GET") {
           // expire stale timers on read so clients never see a dead countdown
@@ -107,16 +135,28 @@ export default {
         return json({ board: { id: boardId, timer_ends_at: null }, now: Date.now() });
       }
 
-      // ---- delete board (maintenance) ----
+      // ---- restore from trash ----
+      if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)\/restore$/)) && method === "POST") {
+        await env.DB.prepare("UPDATE boards SET deleted_at = NULL WHERE id = ?").bind(m[1]).run();
+        return json({ ok: true });
+      }
+
+      // ---- delete board: soft (recycle bin) by default, ?permanent=1 to purge ----
       if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)$/)) && method === "DELETE") {
         const boardId = m[1];
-        const notes = await env.DB.prepare("SELECT id FROM notes WHERE board_id = ?").bind(boardId).all();
-        const stmts = notes.results.map((n) =>
-          env.DB.prepare("DELETE FROM votes WHERE note_id = ?").bind(n.id),
-        );
-        stmts.push(env.DB.prepare("DELETE FROM notes WHERE board_id = ?").bind(boardId));
-        stmts.push(env.DB.prepare("DELETE FROM boards WHERE id = ?").bind(boardId));
-        if (stmts.length) await env.DB.batch(stmts);
+        if (url.searchParams.get("permanent") === "1") {
+          const notes = await env.DB.prepare("SELECT id FROM notes WHERE board_id = ?").bind(boardId).all();
+          const stmts = notes.results.map((n) =>
+            env.DB.prepare("DELETE FROM votes WHERE note_id = ?").bind(n.id),
+          );
+          stmts.push(env.DB.prepare("DELETE FROM notes WHERE board_id = ?").bind(boardId));
+          stmts.push(env.DB.prepare("DELETE FROM boards WHERE id = ?").bind(boardId));
+          await env.DB.batch(stmts);
+          return json({ ok: true, purged: true });
+        }
+        await env.DB.prepare("UPDATE boards SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+          .bind(Date.now(), boardId)
+          .run();
         return json({ ok: true });
       }
 

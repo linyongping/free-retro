@@ -14,6 +14,9 @@ A tiny, free retrospective board. Create a board, share the link, drop sticky no
 - Admin page at `/#/admin` (link in the home footer): list all boards and
   delete them (two-step confirm). Anyone with the link can manage — same
   trusted-team model as the boards themselves
+- Recycle bin: deleting a board soft-deletes it for 30 days (restore or
+  purge from the admin Trash tab); a daily cron at 03:00 purges boards past
+  the 30-day window
 - Multiple boards with a recent-boards home page
 - Sticky-note paper UI, self-hosted handwriting fonts (Caveat + Patrick Hand)
 
@@ -62,7 +65,10 @@ npm run deploy
 | GET | `/api/boards` | list boards (with note counts) |
 | POST | `/api/boards` | create board `{title}` |
 | PATCH | `/api/boards/:id` | rename `{title}` |
-| DELETE | `/api/boards/:id` | delete board + all its notes and votes |
+| DELETE | `/api/boards/:id` | move board to trash (soft delete) |
+| DELETE | `/api/boards/:id?permanent=1` | purge board + notes + votes |
+| POST | `/api/boards/:id/restore` | restore from trash |
+| GET | `/api/boards?trash=1` | list trashed boards |
 | POST | `/api/boards/:id/timer` | start silent-writing timer `{minutes}` |
 | DELETE | `/api/boards/:id/timer` | stop the timer |
 | GET | `/api/boards/:id?voter=` | full board state incl. notes + `voted` flag |

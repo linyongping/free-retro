@@ -323,6 +323,21 @@ input, textarea { font: inherit; color: inherit; }
 .admin-title { font-family: var(--font-marker); font-weight: 600; font-size: 48px; line-height: 1.05; margin: 0 0 8px; }
 .admin-sub { margin: 0; color: var(--ink-soft); font-size: 14.5px; }
 
+.admin-tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+.admin-tab {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: rgba(255, 253, 244, 0.7);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink-soft);
+  transition: all 0.15s ease;
+}
+.admin-tab:hover { border-color: var(--ink-faint); color: var(--ink); }
+.admin-tab.on { background: var(--ink); border-color: var(--ink); color: #fffdf4; }
+.admin-row.trashed .a-title { color: var(--ink-soft); }
+
 .admin-list { display: flex; flex-direction: column; gap: 14px; }
 .admin-row {
   display: flex;

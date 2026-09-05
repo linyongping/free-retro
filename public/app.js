@@ -116,24 +116,26 @@ const COLUMNS = [
 ];
 
 // ---------- router ----------
+let routeSeq = 0; // guards against a stale async render landing after a newer route
 async function route() {
+  const seq = ++routeSeq;
   const hash = location.hash || "#/";
   const m = hash.match(/^#\/b\/([a-z0-9]+)/);
   if (m) {
     state.route = { name: "board", id: m[1] };
-    await loadBoard(m[1]);
+    await loadBoard(m[1], seq);
   } else if (hash.startsWith("#/admin")) {
     state.route = { name: "admin" };
-    await renderAdmin();
+    await renderAdmin(seq);
   } else {
     state.route = { name: "home" };
-    await renderHome();
+    await renderHome(seq);
   }
 }
 window.addEventListener("hashchange", route);
 
 // ---------- home ----------
-async function renderHome() {
+async function renderHome(seq = routeSeq) {
   document.title = "Free Retro — quick retrospective boards";
   $app.replaceChildren(h("div", { class: "home" }));
 
@@ -179,6 +181,7 @@ async function renderHome() {
   root.append(h("div", { class: "section-label", style: "margin-top:0" }, "Recent boards"), listWrap);
   try {
     const { boards } = await api("/api/boards");
+    if (seq !== routeSeq) return; // a newer route took over while we fetched
     state.boards = boards;
     if (!boards.length) {
       listWrap.append(
@@ -215,11 +218,13 @@ async function renderHome() {
 }
 
 // ---------- admin: manage boards ----------
+let adminTab = "active"; // "active" | "trash"
+
 function shortDate(ts) {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-async function renderAdmin() {
+async function renderAdmin(seq = routeSeq) {
   document.title = "Manage boards · Free Retro";
   $app.replaceChildren(h("div", { class: "home" }));
   const root = $app.firstChild;
@@ -228,30 +233,124 @@ async function renderAdmin() {
     h("div", { class: "admin-head" },
       h("a", { class: "back-link", href: "#/" }, h("span", { html: ICONS.back }), "All boards"),
       h("h1", { class: "admin-title" }, "Manage boards"),
-      h("p", { class: "admin-sub" }, "Deleting a board permanently removes all of its notes and votes. There is no undo."),
+      h("p", { class: "admin-sub" }, "Deleted boards wait in the trash for 30 days, then are purged for good."),
     ),
   );
 
-  const listWrap = h("div");
-  root.append(listWrap);
+  const body = h("div", {}, h("div", { style: "text-align:center;padding:30px;font-family:var(--font-hand);font-size:18px;color:var(--ink-soft)" }, "Fetching boards…"));
+  root.append(body);
+
+  let active = [], trash = [];
   try {
-    const { boards } = await api("/api/boards");
-    if (!boards.length) {
-      listWrap.append(
-        h("div", { class: "empty-hint" },
-          h("div", { class: "doodle" }, "No boards to manage"),
-          h("p", {}, "Create one from the home page first."),
-        ),
-      );
+    [active, trash] = (await Promise.all([
+      api("/api/boards"),
+      api("/api/boards?trash=1"),
+    ])).map((r) => r.boards);
+  } catch { /* fall through with empty lists */ }
+  if (seq !== routeSeq) return; // a newer route took over while we fetched
+
+  const tabs = h("div", { class: "admin-tabs" },
+    adminTabButton("active", `Boards (${active.length})`),
+    adminTabButton("trash", `Trash (${trash.length})`),
+  );
+  body.replaceChildren(tabs);
+
+  if (adminTab === "active") {
+    if (!active.length) {
+      body.append(h("div", { class: "empty-hint" },
+        h("div", { class: "doodle" }, "No boards to manage"),
+        h("p", {}, "Create one from the home page first.")));
       return;
     }
-    listWrap.append(
-      h("div", { class: "section-label" }, `${boards.length} board${boards.length === 1 ? "" : "s"}`),
-      h("div", { class: "admin-list" }, ...boards.map(adminRow)),
+    body.append(
+      h("div", { class: "section-label" }, `${active.length} board${active.length === 1 ? "" : "s"}`),
+      h("div", { class: "admin-list" }, ...active.map(adminRow)),
     );
-  } catch {
-    listWrap.append(h("div", { class: "empty-hint" }, h("p", {}, "Couldn't load boards — is the server awake?")));
+  } else {
+    if (!trash.length) {
+      body.append(h("div", { class: "empty-hint" },
+        h("div", { class: "doodle" }, "Trash is empty"),
+        h("p", {}, "Deleted boards wait here for 30 days before they are purged.")));
+      return;
+    }
+    body.append(
+      h("div", { class: "section-label" }, `deleted · auto-purged after 30 days`),
+      h("div", { class: "admin-list" }, ...trash.map(trashRow)),
+    );
   }
+}
+
+function adminTabButton(tab, label) {
+  return h("button", {
+    class: "admin-tab" + (adminTab === tab ? " on" : ""),
+    onclick: () => { adminTab = tab; renderAdmin(); },
+  }, label);
+}
+
+function daysLeft(deletedAt) {
+  return Math.max(0, Math.ceil((deletedAt + 30 * 864e5 - Date.now()) / 864e5));
+}
+
+function trashRow(b) {
+  const row = h("div", { class: "admin-row trashed" });
+  const notesWord = `${b.note_count} note${b.note_count === 1 ? "" : "s"}`;
+
+  const purgeBtn = h("button", { class: "btn ghost admin-del", onclick: confirmPurge }, "Delete forever");
+  let confirmTimer;
+  function confirmPurge() {
+    if (purgeBtn.dataset.confirm) {
+      clearTimeout(confirmTimer);
+      purge();
+      return;
+    }
+    purgeBtn.dataset.confirm = "1";
+    purgeBtn.classList.add("confirm");
+    purgeBtn.textContent = "Forever? No undo";
+    confirmTimer = setTimeout(() => {
+      delete purgeBtn.dataset.confirm;
+      purgeBtn.classList.remove("confirm");
+      purgeBtn.textContent = "Delete forever";
+    }, 3200);
+  }
+  async function purge() {
+    row.classList.add("deleting");
+    try {
+      await api(`/api/boards/${b.id}?permanent=1`, { method: "DELETE" });
+      setTimeout(() => { row.remove(); maybeShowEmptyTrash(); }, 200);
+      toast(`“${b.title}” is gone for good`);
+    } catch {
+      row.classList.remove("deleting");
+      toast("Delete failed — try again");
+    }
+  }
+
+  row.append(
+    h("div", { class: "a-info" },
+      h("span", { class: "a-title" }, b.title),
+      h("div", { class: "a-meta" },
+        `${notesWord} · deleted ${timeAgo(b.deleted_at)} · purges in ${daysLeft(b.deleted_at)} day${daysLeft(b.deleted_at) === 1 ? "" : "s"}`,
+      ),
+    ),
+    h("div", { class: "a-actions" },
+      h("button", {
+        class: "btn ghost", onclick: async () => {
+          try {
+            await api(`/api/boards/${b.id}/restore`, { method: "POST" });
+            toast(`Restored “${b.title}”`);
+            adminTab = "active"; // show it where the user can find it
+            renderAdmin();
+          } catch { toast("Restore failed — try again"); }
+        },
+      }, "Restore"),
+      purgeBtn,
+    ),
+  );
+  return row;
+}
+
+function maybeShowEmptyTrash() {
+  const list = $app.querySelector(".admin-list");
+  if (list && !list.children.length) renderAdmin();
 }
 
 function adminRow(b) {
@@ -268,7 +367,7 @@ function adminRow(b) {
     }
     delBtn.dataset.confirm = "1";
     delBtn.classList.add("confirm");
-    delBtn.textContent = `Sure? ${notesWord} gone`;
+    delBtn.textContent = `Trash it?`;
     confirmTimer = setTimeout(() => {
       delete delBtn.dataset.confirm;
       delBtn.classList.remove("confirm");
@@ -279,12 +378,8 @@ function adminRow(b) {
     row.classList.add("deleting");
     try {
       await api(`/api/boards/${b.id}`, { method: "DELETE" });
-      setTimeout(() => {
-        row.remove();
-        const list = $app.querySelector(".admin-list");
-        if (list && !list.children.length) route(); // show the empty state
-      }, 200);
-      toast(`Deleted “${b.title}”`);
+      setTimeout(() => { row.remove(); maybeShowEmptyList(); }, 200);
+      toast(`“${b.title}” moved to trash`);
     } catch {
       row.classList.remove("deleting");
       toast("Delete failed — try again");
@@ -304,6 +399,11 @@ function adminRow(b) {
     ),
   );
   return row;
+}
+
+function maybeShowEmptyList() {
+  const list = $app.querySelector(".admin-list");
+  if (list && !list.children.length) renderAdmin();
 }
 
 // ---------- silent-writing timer ----------
@@ -424,20 +524,21 @@ setInterval(() => {
 }, 500);
 
 // ---------- board ----------
-async function loadBoard(id) {
+async function loadBoard(id, seq = routeSeq) {
   state.titleEditing = false;
   $app.replaceChildren(h("div", { class: "board-page" }, h("div", { style: "padding:40px;text-align:center;font-family:var(--font-hand);font-size:20px;color:var(--ink-soft)" }, "Unrolling the paper…")));
   let data;
   try {
     data = await api(`/api/boards/${id}?voter=${encodeURIComponent(store.voter)}`);
   } catch (err) {
+    if (seq !== routeSeq) return; // user moved on while we were loading
     if (err.status === 404) {
       document.title = "Board not found · Free Retro";
       $app.replaceChildren(
         h("div", { class: "home" },
           h("div", { class: "empty-hint" },
             h("div", { class: "doodle" }, "This board has wandered off"),
-            h("p", {}, "The link may be wrong, or the board was never created."),
+          h("p", {}, "The link may be wrong, or the board was deleted — a teammate can restore it from the trash in Manage boards."),
             h("div", { style: "margin-top:18px" },
               h("a", { class: "btn ghost", href: "#/" }, "Back to all boards")),
           ),
@@ -456,6 +557,7 @@ async function loadBoard(id) {
   state.timerEndsAt = data.board.timer_ends_at || null;
   state.serverOffset = (data.now || Date.now()) - Date.now();
   document.title = `${data.board.title} · Free Retro`;
+  if (seq !== routeSeq) return; // a newer route took over while we fetched
   renderBoardShell();
   applyTimerState();
 
