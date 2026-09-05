@@ -858,11 +858,22 @@ input, textarea { font: inherit; color: inherit; }
    ============================================================ */
 @media (max-width: 900px) {
   .columns { grid-template-columns: 1fr; gap: 40px; }
-  .board-title { font-size: 26px; }
-  .topbar { flex-wrap: wrap; }
   .home { padding-top: 4vh; }
 }
 @media (max-width: 640px) {
+  /* topbar: row 1 = back + action buttons, row 2 = full-width readable title */
+  .topbar { flex-wrap: wrap; row-gap: 10px; padding-bottom: 4px; }
+  .topbar .spacer { display: none; }
+  .topbar .back { order: 1; }
+  .topbar .timer-wrap { order: 2; margin-left: auto; }
+  .topbar > .btn, .topbar > a.btn { order: 2; }
+  .topbar > .me-chip { order: 3; margin-left: auto; }
+  .board-title, .team-title { order: 3; flex: 1 1 auto; white-space: normal; font-size: 27px; padding: 2px 6px; align-self: center; }
+  .board-title-input { order: 3; flex: 1 1 100%; }
+  .timer-chip { font-size: 19px; padding: 6px 13px; }
+  /* banner pill wraps instead of overflowing narrow screens */
+  .timer-banner .t-pill { flex-wrap: wrap; justify-content: center; row-gap: 2px; max-width: calc(100vw - 28px); text-align: center; }
+  /* admin page */
   .admin-row { flex-wrap: wrap; }
   .admin-row .a-info { flex-basis: 100%; }
   .admin-title { font-size: 38px; }
