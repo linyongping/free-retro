@@ -292,10 +292,11 @@ async function renderTeam(seq = routeSeq, teamId) {
     h("a", { class: "btn ghost", href: `#/t/${teamId}/admin` }, "Manage"),
   );
 
-  // create-board card (scoped to this team)
+  // create-board card (scoped to this team); pre-filled with the dated default
   const input = h("input", {
-    type: "text", maxlength: "120", placeholder: "Sprint 42 retro…",
+    type: "text", maxlength: "120", value: defaultBoardTitle(),
     "aria-label": "Board title",
+    onfocus: (e) => e.target.select(),
     onkeydown: (e) => { if (e.key === "Enter") createBtn.click(); },
   });
   const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create board");
