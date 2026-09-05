@@ -629,6 +629,9 @@ input, textarea { font: inherit; color: inherit; }
   min-height: 60px;
 }
 
+.note-edit-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
+.note-save { padding: 4px 13px; font-size: 12.5px; border-radius: 6px; }
+
 .note-foot {
   display: flex;
   align-items: center;

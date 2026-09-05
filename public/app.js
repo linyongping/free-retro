@@ -258,7 +258,7 @@ async function renderTeam(seq = routeSeq, teamId) {
     const nameInput = h("input", {
       class: "team-title-input board-title-input", maxlength: "60", value: team.name,
       onkeydown: (e) => {
-        if (e.key === "Enter") nameInput.blur();
+        if (e.key === "Enter" && !e.isComposing) nameInput.blur();
         if (e.key === "Escape") { nameInput.value = team.name; nameInput.blur(); }
       },
       onblur: async () => {
@@ -748,7 +748,7 @@ function startTitleEdit() {
   const input = h("input", {
     class: "board-title-input", maxlength: "120", value: state.board.title,
     onkeydown: (e) => {
-      if (e.key === "Enter") input.blur();
+      if (e.key === "Enter" && !e.isComposing) input.blur();
       if (e.key === "Escape") { input.value = state.board.title; input.blur(); }
     },
     onblur: async () => {
@@ -908,23 +908,38 @@ function noteCard(note) {
 
 function startEdit(note, card, textEl) {
   if (card.querySelector(".note-edit-ta")) return;
-  const ta = h("textarea", { class: "note-edit-ta", maxlength: "500" });
+  const ta = h("textarea", { class: "note-edit-ta", maxlength: "500", enterkeyhint: "done" });
   ta.value = note.text;
+  let closing = false;
+  const wrap = h("div", {}, ta);
   const finish = async (save) => {
+    if (closing) return;
+    closing = true;
     const newText = ta.value.trim().slice(0, 500);
     if (save && newText && newText !== note.text) {
       note.text = newText;
       try { await api(`/api/notes/${note.id}`, { method: "PATCH", body: { text: newText } }); }
       catch { toast("Edit failed — will resync"); }
     }
+    // remove the editor first — renderNotes skips rebuilds while it's in the DOM
+    wrap.remove();
     renderNotes();
   };
   ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ta.blur(); }
     if (e.key === "Escape") { ta.value = note.text; ta.blur(); }
   });
-  ta.addEventListener("blur", () => finish(true));
-  textEl.replaceWith(ta);
+  ta.addEventListener("blur", () => {
+    // a transient blur (mobile keyboard dismissing, focus race) must not close
+    // the editor — only finish for real if focus doesn't come back right away
+    setTimeout(() => {
+      if (document.activeElement === ta) return;
+      finish(true);
+    }, 200);
+  });
+  const saveBtn = h("button", { class: "btn accent note-save", onclick: () => finish(true) }, "Done");
+  wrap.append(h("div", { class: "note-edit-actions" }, saveBtn));
+  textEl.replaceWith(wrap);
   ta.focus();
   ta.setSelectionRange(ta.value.length, ta.value.length);
 }
