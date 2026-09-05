@@ -120,13 +120,19 @@ let routeSeq = 0; // guards against a stale async render landing after a newer r
 async function route() {
   const seq = ++routeSeq;
   const hash = location.hash || "#/";
-  const m = hash.match(/^#\/b\/([a-z0-9]+)/);
-  if (m) {
-    state.route = { name: "board", id: m[1] };
-    await loadBoard(m[1], seq);
-  } else if (hash.startsWith("#/admin")) {
-    state.route = { name: "admin" };
-    await renderAdmin(seq);
+  const bm = hash.match(/^#\/b\/([a-z0-9]+)/);
+  const am = hash.match(/^#\/t\/([a-z0-9]+)\/admin$/);
+  const tm = hash.match(/^#\/t\/([a-z0-9]+)$/);
+  if (bm) {
+    state.route = { name: "board", id: bm[1] };
+    await loadBoard(bm[1], seq);
+  } else if (am) {
+    state.route = { name: "teamAdmin", id: am[1] };
+    adminTab = "active";
+    await renderTeamAdmin(seq, am[1]);
+  } else if (tm) {
+    state.route = { name: "team", id: tm[1] };
+    await renderTeam(seq, tm[1]);
   } else {
     state.route = { name: "home" };
     await renderHome(seq);
@@ -134,7 +140,12 @@ async function route() {
 }
 window.addEventListener("hashchange", route);
 
-// ---------- home ----------
+// ---------- home: teams ----------
+function defaultBoardTitle() {
+  const date = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return `${date} retro board`;
+}
+
 async function renderHome(seq = routeSeq) {
   document.title = "Free Retro — quick retrospective boards";
   $app.replaceChildren(h("div", { class: "home" }));
@@ -143,51 +154,184 @@ async function renderHome(seq = routeSeq) {
   root.append(
     h("div", { class: "hero" },
       h("h1", {}, "Free ", h("span", { class: "hl" }, "Retro")),
-      h("p", {}, "Tiny retrospective boards for your team. Create one, share the link, drop sticky notes — no sign-up."),
+      h("p", {}, "Tiny retrospective boards. One link per team — share it, and everyone can run retros. No sign-up."),
     ),
   );
 
-  // create card
+  // create-team card
+  const input = h("input", {
+    type: "text", maxlength: "60", placeholder: "e.g. Platform team",
+    "aria-label": "Team name",
+    onkeydown: (e) => { if (e.key === "Enter") createBtn.click(); },
+  });
+  const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create team");
+  async function doCreate() {
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    createBtn.disabled = true;
+    try {
+      const { team } = await api("/api/teams", { method: "POST", body: { name } });
+      location.hash = `#/t/${team.id}`;
+    } catch {
+      toast("Couldn't create the team — try again.");
+      createBtn.disabled = false;
+    }
+  }
+  root.append(
+    h("div", { class: "create-card" },
+      h("label", {}, "Create a team"),
+      h("div", { class: "create-row" }, input, createBtn),
+    ),
+  );
+
+  // teams grid
+  const listWrap = h("div");
+  root.append(h("div", { class: "section-label", style: "margin-top:0" }, "Your teams"), listWrap);
+  try {
+    const { teams } = await api("/api/teams");
+    if (seq !== routeSeq) return; // a newer route took over while we fetched
+    if (!teams.length) {
+      listWrap.append(
+        h("div", { class: "empty-hint" },
+          h("div", { class: "doodle" }, "No teams yet"),
+          h("p", {}, "Create your first team above — each team gets its own board space and a shareable link."),
+        ),
+      );
+    } else {
+      const grid = h("div", { class: "boards-grid" });
+      for (const t of teams) {
+        grid.append(
+          h("a", { class: "board-card team-card", href: `#/t/${t.id}`, style: `--note-bg: var(--c-${colorOf(t.id)})` },
+            h("h3", { class: "b-title" }, t.name),
+            h("div", { class: "b-meta" },
+              h("span", {}, `${t.board_count} board${t.board_count === 1 ? "" : "s"}`),
+              h("span", {}, shortDate(t.created_at)),
+              h("span", { class: "b-go" }, "open →"),
+            ),
+          ),
+        );
+      }
+      listWrap.append(grid);
+    }
+  } catch {
+    listWrap.append(h("div", { class: "empty-hint" }, h("p", {}, "Couldn't load teams — is the server awake?")));
+  }
+  root.append(
+    h("div", { class: "home-foot" },
+      "free-retro · runs entirely on Cloudflare's free tier · your data lives in D1",
+    ),
+  );
+}
+
+// ---------- team page ----------
+async function renderTeam(seq = routeSeq, teamId) {
+  document.title = "Free Retro — quick retrospective boards";
+  $app.replaceChildren(h("div", { class: "home" }));
+  const root = $app.firstChild;
+  root.append(h("div", { style: "padding:40px;text-align:center;font-family:var(--font-hand);font-size:20px;color:var(--ink-soft)" }, "Opening the team space…"));
+
+  let team;
+  try {
+    ({ team } = await api(`/api/teams/${teamId}`));
+  } catch (err) {
+    if (seq !== routeSeq) return; // a newer route took over while we fetched
+    if (err && err.status === 404) {
+      document.title = "Team not found · Free Retro";
+      root.replaceChildren(
+        h("div", { class: "empty-hint" },
+          h("div", { class: "doodle" }, "This team link doesn't exist"),
+          h("p", {}, "Check the link, or head back home to find your teams."),
+          h("div", { style: "margin-top:18px" }, h("a", { class: "btn ghost", href: "#/" }, "Back to all teams")),
+        ),
+      );
+      return;
+    }
+    root.replaceChildren(h("div", { class: "empty-hint" }, h("p", {}, "Couldn't load the team — is the server awake?")));
+    return;
+  }
+  if (seq !== routeSeq) return;
+  document.title = `${team.name} · Free Retro`;
+
+  function startTeamEdit() {
+    const titleEl = root.querySelector(".team-title");
+    if (!titleEl || root.querySelector(".team-title-input")) return;
+    const nameInput = h("input", {
+      class: "team-title-input board-title-input", maxlength: "60", value: team.name,
+      onkeydown: (e) => {
+        if (e.key === "Enter") nameInput.blur();
+        if (e.key === "Escape") { nameInput.value = team.name; nameInput.blur(); }
+      },
+      onblur: async () => {
+        const name = nameInput.value.trim().slice(0, 60);
+        if (name && name !== team.name) {
+          try {
+            const res = await api(`/api/teams/${teamId}`, { method: "PATCH", body: { name } });
+            team.name = res.team.name;
+            document.title = `${team.name} · Free Retro`;
+          } catch { toast("Rename failed"); }
+        }
+        const cur = root.querySelector(".team-title-input");
+        if (cur) cur.replaceWith(h("h1", { class: "board-title team-title", title: "Click to rename", onclick: startTeamEdit }, team.name));
+      },
+    });
+    titleEl.replaceWith(nameInput);
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  const head = h("nav", { class: "topbar" },
+    h("a", { class: "back", href: "#/" }, h("span", { html: ICONS.back }), "Teams"),
+    h("h1", { class: "board-title team-title", title: "Click to rename", onclick: startTeamEdit }, team.name),
+    h("div", { class: "spacer" }),
+    h("button", {
+      class: "btn ghost", onclick: async () => {
+        try { await navigator.clipboard.writeText(location.href); toast("Team link copied — share it with your teammates"); }
+        catch { toast("Copy failed — grab it from the address bar"); }
+      },
+    }, h("span", { html: ICONS.link }), "Team link"),
+    h("a", { class: "btn ghost", href: `#/t/${teamId}/admin` }, "Manage"),
+  );
+
+  // create-board card (scoped to this team)
   const input = h("input", {
     type: "text", maxlength: "120", placeholder: "Sprint 42 retro…",
     "aria-label": "Board title",
     onkeydown: (e) => { if (e.key === "Enter") createBtn.click(); },
   });
   const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create board");
-  function defaultBoardTitle() {
-    const date = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    return `${date} retro board`;
-  }
   async function doCreate() {
     const title = input.value.trim() || defaultBoardTitle();
     createBtn.disabled = true;
     try {
-      const { board } = await api("/api/boards", { method: "POST", body: { title } });
+      const { board } = await api("/api/boards", { method: "POST", body: { title, team_id: teamId } });
       location.hash = `#/b/${board.id}`;
-    } catch (err) {
+    } catch {
       toast("Couldn't create the board — try again.");
       createBtn.disabled = false;
     }
   }
-  root.append(
-    h("div", { class: "create-card" },
-      h("label", {}, "Start a new retro"),
-      h("div", { class: "create-row" }, input, createBtn),
+
+  const listWrap = h("div");
+  root.replaceChildren(
+    h("div", { class: "home" },
+      head,
+      h("div", { class: "create-card team-create" },
+        h("label", {}, "Start a new retro"),
+        h("div", { class: "create-row" }, input, createBtn),
+      ),
+      h("div", { class: "section-label" }, "Boards"),
+      listWrap,
     ),
   );
 
-  // boards list
-  const listWrap = h("div");
-  root.append(h("div", { class: "section-label", style: "margin-top:0" }, "Recent boards"), listWrap);
   try {
-    const { boards } = await api("/api/boards");
-    if (seq !== routeSeq) return; // a newer route took over while we fetched
-    state.boards = boards;
+    const { boards } = await api(`/api/teams/${teamId}/boards`);
+    if (seq !== routeSeq) return;
     if (!boards.length) {
       listWrap.append(
         h("div", { class: "empty-hint" },
-          h("div", { class: "doodle" }, "Nothing here yet"),
-          h("p", {}, "Create your first board above and share the link at your next retro."),
+          h("div", { class: "doodle" }, "No retros yet"),
+          h("p", {}, "Create the first board above, then share the team link with your teammates."),
         ),
       );
     } else {
@@ -209,29 +353,25 @@ async function renderHome(seq = routeSeq) {
   } catch {
     listWrap.append(h("div", { class: "empty-hint" }, h("p", {}, "Couldn't load boards — is the server awake?")));
   }
-  root.append(
-    h("div", { class: "home-foot" },
-      "free-retro · runs entirely on Cloudflare's free tier · your data lives in D1 · ",
-      h("a", { href: "#/admin" }, "Manage boards"),
-    ),
-  );
 }
 
-// ---------- admin: manage boards ----------
+// ---------- team admin: manage this team's boards ----------
 let adminTab = "active"; // "active" | "trash"
+let adminTeamId = null;
 
 function shortDate(ts) {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-async function renderAdmin(seq = routeSeq) {
+async function renderTeamAdmin(seq = routeSeq, teamId) {
+  adminTeamId = teamId;
   document.title = "Manage boards · Free Retro";
   $app.replaceChildren(h("div", { class: "home" }));
   const root = $app.firstChild;
 
   root.append(
     h("div", { class: "admin-head" },
-      h("a", { class: "back-link", href: "#/" }, h("span", { html: ICONS.back }), "All boards"),
+      h("a", { class: "back-link", href: `#/t/${teamId}` }, h("span", { html: ICONS.back }), "Back to team"),
       h("h1", { class: "admin-title" }, "Manage boards"),
       h("p", { class: "admin-sub" }, "Deleted boards wait in the trash for 30 days, then are purged for good."),
     ),
@@ -243,8 +383,8 @@ async function renderAdmin(seq = routeSeq) {
   let active = [], trash = [];
   try {
     [active, trash] = (await Promise.all([
-      api("/api/boards"),
-      api("/api/boards?trash=1"),
+      api(`/api/teams/${teamId}/boards`),
+      api(`/api/teams/${teamId}/boards?trash=1`),
     ])).map((r) => r.boards);
   } catch { /* fall through with empty lists */ }
   if (seq !== routeSeq) return; // a newer route took over while we fetched
@@ -259,7 +399,7 @@ async function renderAdmin(seq = routeSeq) {
     if (!active.length) {
       body.append(h("div", { class: "empty-hint" },
         h("div", { class: "doodle" }, "No boards to manage"),
-        h("p", {}, "Create one from the home page first.")));
+        h("p", {}, "Create one from the team page first.")));
       return;
     }
     body.append(
@@ -283,7 +423,7 @@ async function renderAdmin(seq = routeSeq) {
 function adminTabButton(tab, label) {
   return h("button", {
     class: "admin-tab" + (adminTab === tab ? " on" : ""),
-    onclick: () => { adminTab = tab; renderAdmin(); },
+    onclick: () => { adminTab = tab; renderTeamAdmin(routeSeq, adminTeamId); },
   }, label);
 }
 
@@ -338,7 +478,7 @@ function trashRow(b) {
             await api(`/api/boards/${b.id}/restore`, { method: "POST" });
             toast(`Restored “${b.title}”`);
             adminTab = "active"; // show it where the user can find it
-            renderAdmin();
+            renderTeamAdmin(routeSeq, adminTeamId);
           } catch { toast("Restore failed — try again"); }
         },
       }, "Restore"),
@@ -350,7 +490,7 @@ function trashRow(b) {
 
 function maybeShowEmptyTrash() {
   const list = $app.querySelector(".admin-list");
-  if (list && !list.children.length) renderAdmin();
+  if (list && !list.children.length) renderTeamAdmin(routeSeq, adminTeamId);
 }
 
 function adminRow(b) {
@@ -403,7 +543,7 @@ function adminRow(b) {
 
 function maybeShowEmptyList() {
   const list = $app.querySelector(".admin-list");
-  if (list && !list.children.length) renderAdmin();
+  if (list && !list.children.length) renderTeamAdmin(routeSeq, adminTeamId);
 }
 
 // ---------- silent-writing timer ----------
@@ -586,7 +726,7 @@ function renderBoardShell() {
   );
 
   const topbar = h("nav", { class: "topbar" },
-    h("a", { class: "back", href: "#/" }, h("span", { html: ICONS.back }), "Boards"),
+    h("a", { class: "back", href: `#/t/${state.board.team_id || ""}` }, h("span", { html: ICONS.back }), "Boards"),
     titleEl,
     h("div", { class: "spacer" }),
     buildTimerControl(),

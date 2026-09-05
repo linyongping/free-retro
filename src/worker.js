@@ -52,7 +52,63 @@ export default {
     let m;
 
     try {
-      // ---- boards collection (active, or ?trash=1 for the recycle bin) ----
+      // ---- teams ----
+      if (path === "/api/teams" && method === "GET") {
+        const { results } = await env.DB.prepare(
+          `SELECT t.id, t.name, t.created_at,
+             (SELECT COUNT(*) FROM boards b WHERE b.team_id = t.id AND b.deleted_at IS NULL) AS board_count
+           FROM teams t ORDER BY t.created_at ASC LIMIT 50`
+        ).all();
+        return json({ teams: results });
+      }
+
+      if (path === "/api/teams" && method === "POST") {
+        const body = await readBody(request);
+        const name = (body.name || "").toString().trim().slice(0, 60) || "New team";
+        const id = rid(8);
+        const created_at = Date.now();
+        await env.DB.prepare("INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)")
+          .bind(id, name, created_at)
+          .run();
+        return json({ team: { id, name, created_at, board_count: 0 } }, 201);
+      }
+
+      if ((m = path.match(/^\/api\/teams\/([a-z0-9]+)$/))) {
+        const teamId = m[1];
+        const team = await env.DB.prepare("SELECT id, name, created_at FROM teams WHERE id = ?")
+          .bind(teamId)
+          .first();
+        if (!team) return json({ error: "team_not_found" }, 404);
+        if (method === "GET") return json({ team });
+        if (method === "PATCH") {
+          const body = await readBody(request);
+          const name = (body.name || "").toString().trim().slice(0, 60);
+          if (!name) return json({ error: "invalid_name" }, 400);
+          await env.DB.prepare("UPDATE teams SET name = ? WHERE id = ?").bind(name, teamId).run();
+          return json({ team: { ...team, name } });
+        }
+      }
+
+      // ---- team-scoped boards list (active, or ?trash=1) ----
+      if ((m = path.match(/^\/api\/teams\/([a-z0-9]+)\/boards$/)) && method === "GET") {
+        const team = await env.DB.prepare("SELECT id FROM teams WHERE id = ?").bind(m[1]).first();
+        if (!team) return json({ error: "team_not_found" }, 404);
+        const trash = url.searchParams.get("trash") === "1";
+        const { results } = await env.DB.prepare(
+          `SELECT b.id, b.title, b.created_at, b.deleted_at,
+             (SELECT COUNT(*) FROM notes n WHERE n.board_id = b.id) AS note_count,
+             (SELECT MAX(n.updated_at) FROM notes n WHERE n.board_id = b.id) AS last_activity
+           FROM boards b
+           WHERE b.team_id = ?1 AND b.deleted_at IS ${trash ? "NOT NULL" : "NULL"}
+           ORDER BY ${trash ? "b.deleted_at" : "COALESCE(last_activity, b.created_at)"} DESC
+           LIMIT 200`
+        )
+          .bind(m[1])
+          .all();
+        return json({ boards: results });
+      }
+
+      // ---- boards collection (legacy, unused by the UI) ----
       if (path === "/api/boards" && method === "GET") {
         const trash = url.searchParams.get("trash") === "1";
         const { results } = await env.DB.prepare(
@@ -70,18 +126,28 @@ export default {
       if (path === "/api/boards" && method === "POST") {
         const body = await readBody(request);
         const title = (body.title || "").toString().trim().slice(0, 120) || "Untitled retro";
+        // resolve the owning team: given team if valid, else the oldest team
+        let teamId = (body.team_id || "").toString().slice(0, 20) || null;
+        if (teamId) {
+          const t = await env.DB.prepare("SELECT id FROM teams WHERE id = ?").bind(teamId).first();
+          if (!t) teamId = null;
+        }
+        if (!teamId) {
+          const t = await env.DB.prepare("SELECT id FROM teams ORDER BY created_at ASC LIMIT 1").first();
+          teamId = t ? t.id : null;
+        }
         const id = rid(8);
         const created_at = Date.now();
-        await env.DB.prepare("INSERT INTO boards (id, title, created_at) VALUES (?, ?, ?)")
-          .bind(id, title, created_at)
+        await env.DB.prepare("INSERT INTO boards (id, title, created_at, team_id) VALUES (?, ?, ?, ?)")
+          .bind(id, title, created_at, teamId)
           .run();
-        return json({ board: { id, title, created_at } }, 201);
+        return json({ board: { id, title, created_at, team_id: teamId } }, 201);
       }
 
       // ---- single board ----
       if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)$/))) {
         const boardId = m[1];
-        const board = await env.DB.prepare("SELECT id, title, created_at, timer_ends_at, deleted_at FROM boards WHERE id = ?")
+        const board = await env.DB.prepare("SELECT id, title, created_at, team_id, timer_ends_at, deleted_at FROM boards WHERE id = ?")
           .bind(boardId)
           .first();
         if (!board) return json({ error: "board_not_found" }, 404);

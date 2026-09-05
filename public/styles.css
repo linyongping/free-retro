@@ -867,3 +867,8 @@ input, textarea { font: inherit; color: inherit; }
   .admin-row .a-info { flex-basis: 100%; }
   .admin-title { font-size: 38px; }
 }
+
+/* team cards on the home grid */
+.team-card { min-height: 130px; padding-top: 34px; }
+.team-card .b-title { font-family: var(--font-marker); font-weight: 600; font-size: 27px; }
+.team-create { margin-bottom: 46px; }

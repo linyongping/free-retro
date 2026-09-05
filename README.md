@@ -1,6 +1,6 @@
 # Free Retro
 
-A tiny, free retrospective board. Create a board, share the link, drop sticky notes — no sign-up.
+A tiny, free retrospective board. Create a team, share the link, drop sticky notes — no sign-up.
 
 **Live:** https://free-retro.haigr.workers.dev
 
@@ -11,13 +11,13 @@ A tiny, free retrospective board. Create a board, share the link, drop sticky no
   composers stay open; the countdown is shared across all clients and the blur
   lifts when time is up
 - Boards created with an empty title default to today's date, e.g. *Sep 5, 2026 retro board*
-- Admin page at `/#/admin` (link in the home footer): list all boards and
-  delete them (two-step confirm). Anyone with the link can manage — same
-  trusted-team model as the boards themselves
+- **Teams (link-as-credential)**: the home page lists teams; each team has its
+  own shareable link (`/#/t/<teamId>`) with its boards, board creation, team
+  rename, and a team-scoped manage page (`/#/t/<teamId>/admin`). Whoever has
+  the team link is a member — same trusted-team model as the boards themselves
 - Recycle bin: deleting a board soft-deletes it for 30 days (restore or
-  purge from the admin Trash tab); a daily cron at 03:00 purges boards past
-  the 30-day window
-- Multiple boards with a recent-boards home page
+  purge from the team's admin Trash tab); a daily cron at 03:00 purges boards
+  past the 30-day window
 - Sticky-note paper UI, self-hosted handwriting fonts (Caveat + Patrick Hand)
 
 ## Stack
@@ -32,7 +32,7 @@ A tiny, free retrospective board. Create a board, share the link, drop sticky no
 
 ```
 ├── wrangler.jsonc      # Worker + D1 + assets config
-├── schema.sql          # D1 tables: boards / notes / votes
+├── schema.sql          # D1 tables: teams / boards / notes / votes
 ├── src/worker.js       # JSON API (/api/*)
 └── public/             # SPA served as static assets
     ├── index.html
@@ -62,13 +62,15 @@ npm run deploy
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/boards` | list boards (with note counts) |
-| POST | `/api/boards` | create board `{title}` |
+| GET | `/api/teams` | list teams (with board counts) |
+| POST | `/api/teams` | create team `{name}` |
+| GET/PATCH | `/api/teams/:id` | get / rename team |
+| GET | `/api/teams/:id/boards` | team's boards (`?trash=1` for trash) |
+| POST | `/api/boards` | create board `{title, team_id?}` |
 | PATCH | `/api/boards/:id` | rename `{title}` |
 | DELETE | `/api/boards/:id` | move board to trash (soft delete) |
 | DELETE | `/api/boards/:id?permanent=1` | purge board + notes + votes |
 | POST | `/api/boards/:id/restore` | restore from trash |
-| GET | `/api/boards?trash=1` | list trashed boards |
 | POST | `/api/boards/:id/timer` | start silent-writing timer `{minutes}` |
 | DELETE | `/api/boards/:id/timer` | stop the timer |
 | GET | `/api/boards/:id?voter=` | full board state incl. notes + `voted` flag |
