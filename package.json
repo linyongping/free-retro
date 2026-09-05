@@ -1,0 +1,18 @@
+{
+  "name": "free-retro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A simple free retrospective board on Cloudflare Workers + D1",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:schema:local": "wrangler d1 execute free-retro-db --local --file=./schema.sql",
+    "db:schema:remote": "wrangler d1 execute free-retro-db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260903.1": true
+  }
+}

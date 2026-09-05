@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "free-retro",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "free-retro-db",
+      "database_id": "9d4e09ae-0c67-45b4-943f-2ff76c0d5a98"
+    }
+  ]
+}
