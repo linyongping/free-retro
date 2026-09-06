@@ -6,11 +6,19 @@
   <title>Free Retro — quick retrospective boards</title>
   <meta name="description" content="A free, tiny retrospective board. Create a board, share the link, drop sticky notes. No sign-up.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='2' fill='%23ffe98f'/%3E%3Cpath d='M29 3 L29 20 L20 29 L3 29 L3 3 Z' fill='%23ffe98f'/%3E%3Cpath d='M20 29 L20 20 L29 20 Z' fill='%23e8c94f'/%3E%3C/svg%3E">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#f5efe1">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="app" aria-live="polite"></div>
   <div id="toast" class="toast" hidden></div>
   <script src="/app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+    }
+  </script>
 </body>
 </html>
