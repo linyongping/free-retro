@@ -572,7 +572,7 @@ function buildTimerControl() {
   }
   function renderMenu() {
     menu.replaceChildren();
-    for (const min of [5, 10]) {
+    for (const min of [5, 8, 10]) {
       menu.append(
         h("button", { onclick: () => { closeMenu(); startTimer(min); } },
           h("span", { html: ICONS.clock }), `${min} minutes`),

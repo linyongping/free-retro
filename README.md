@@ -9,7 +9,7 @@ A tiny, free retrospective board. Create a team, share the link, drop sticky not
 - One vote per person per note (toggle), notes sorted by votes
 - Notes are owner-locked: only the creator's browser (or legacy pre-ownership
   notes) can edit or delete them; the server enforces 403 on everyone else
-- Silent-writing timer (5/10 min): while it runs, everyone's notes blur and
+- Silent-writing timer (5/8/10 min): while it runs, everyone's notes blur and
   composers stay open; the countdown is shared across all clients and the blur
   lifts when time is up
 - Boards created with an empty title default to today's date, e.g. *Sep 5, 2026 retro board*
