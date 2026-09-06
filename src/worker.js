@@ -64,7 +64,7 @@ export default {
   async scheduled(event, env, ctx) {
     const cutoff = Date.now() - 30 * 864e5;
     const { results } = await env.DB.prepare(
-      "SELECT id FROM boards WHERE deleted_at IS NOT NULL AND deleted_at < ?"
+      "SELECT id FROM boards WHERE deleted_at IS NOT NULL AND deleted_at < ? LIMIT 50"
     )
       .bind(cutoff)
       .all();

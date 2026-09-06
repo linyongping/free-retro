@@ -123,8 +123,17 @@ const COLUMNS = [
 
 // ---------- router ----------
 let routeSeq = 0; // guards against a stale async render landing after a newer route
+let timerMenuCleanup = null; // releases the timer menu's document click listener
+
+function closeTimerMenu() {
+  if (timerMenuCleanup) {
+    timerMenuCleanup();
+    timerMenuCleanup = null;
+  }
+}
 async function route() {
   const seq = ++routeSeq;
+  closeTimerMenu(); // never leak the menu's document listener across navigations
   const hash = location.hash || "#/";
   const bm = hash.match(/^#\/b\/([a-z0-9]+)/);
   const am = hash.match(/^#\/t\/([a-z0-9]+)\/admin$/);
@@ -606,9 +615,10 @@ function buildTimerControl() {
 
   function closeMenu() {
     menu.classList.add("hidden");
-    document.removeEventListener("click", onDocClick, true);
+    closeTimerMenu();
   }
   function onDocClick(e) {
+    if (!wrap.isConnected) { closeTimerMenu(); return; } // menu was rebuilt/detached
     if (!wrap.contains(e.target)) closeMenu();
   }
   function renderMenu() {
@@ -628,9 +638,13 @@ function buildTimerControl() {
   }
   btn.addEventListener("click", () => {
     if (menu.classList.contains("hidden")) {
+      closeTimerMenu(); // never two live document listeners
       renderMenu();
       menu.classList.remove("hidden");
-      setTimeout(() => document.addEventListener("click", onDocClick, true), 0);
+      // adding synchronously is safe: onDocClick ignores clicks inside the wrap,
+      // so the very click that opens the menu won't immediately close it
+      timerMenuCleanup = () => document.removeEventListener("click", onDocClick, true);
+      document.addEventListener("click", onDocClick, true);
     } else {
       closeMenu();
     }
@@ -1177,7 +1191,7 @@ setInterval(async () => {
 
 // ---------- name modal ----------
 function showNameModal() {
-  if ($app.querySelector(".overlay")) return;
+  if (document.querySelector(".overlay.name-overlay")) return;
   const input = h("input", {
     type: "text", maxlength: "40", placeholder: "e.g. Amy", value: store.name,
     "aria-label": "Your name",
@@ -1189,7 +1203,7 @@ function showNameModal() {
     renderBoardShell();
     if (!store.name) toast("You can stay anonymous — that's fine too");
   }
-  const overlay = h("div", { class: "overlay", onclick: (e) => { if (e.target === overlay && store.name) overlay.remove(); } },
+  const overlay = h("div", { class: "overlay name-overlay", onclick: (e) => { if (e.target === overlay && store.name) overlay.remove(); } },
     h("div", { class: "name-card" },
       h("h3", {}, "Who's adding notes today?"),
       h("p", {}, "Your name shows on your sticky notes. Stored only in your browser."),
