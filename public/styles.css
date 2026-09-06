@@ -954,3 +954,7 @@ input, textarea { font: inherit; color: inherit; }
   border-radius: 2px;
   animation: pop-in 0.15s ease;
 }
+
+/* names visibility toggle */
+.names-toggle.on { background: var(--ink); color: #fffdf4; border-color: var(--ink); }
+.names-toggle.on:hover { background: #52492f; }

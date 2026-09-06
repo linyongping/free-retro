@@ -7,6 +7,8 @@ A tiny, free retrospective board. Create a team, share the link, drop sticky not
 - Classic 3-column retro: *What went well / What could improve / Action items*
 - Multiplayer sync (3s polling) — see teammates' notes and votes appear live
 - One vote per person per note (toggle), notes sorted by votes
+- Note author names are hidden by default; the "Names" toggle in the board
+  topbar shows them per viewer (stored in each browser)
 - Notes are owner-locked: only the creator's browser (or legacy pre-ownership
   notes) can edit or delete them; the server enforces 403 on everyone else
 - Silent-writing timer (5/8/10 min): while it runs, everyone's notes blur and

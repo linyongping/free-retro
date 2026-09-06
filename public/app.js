@@ -34,6 +34,7 @@ const ICONS = {
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
   lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>',
   grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>',
+  user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
 };
 
 // ---------- identity & palette ----------
@@ -45,6 +46,8 @@ const store = {
     if (!v) { v = crypto.randomUUID().replace(/-/g, ""); localStorage.setItem("retro:voter", v); }
     return v;
   },
+  get showNames() { return localStorage.getItem("retro:showNames") === "1"; },
+  set showNames(v) { localStorage.setItem("retro:showNames", v ? "1" : "0"); },
 };
 
 const PALETTE = ["yellow", "pink", "blue", "green", "orange"];
@@ -652,6 +655,20 @@ function buildTimerControl() {
   return wrap;
 }
 
+// viewer-side toggle: show/hide author names on note cards (default hidden)
+function buildNamesToggle() {
+  const btn = h("button", {
+    class: "btn ghost names-toggle" + (store.showNames ? " on" : ""),
+    title: "Show author names on notes",
+    onclick: () => {
+      store.showNames = !store.showNames;
+      btn.classList.toggle("on", store.showNames);
+      renderNotes();
+    },
+  }, h("span", { html: ICONS.user }), "Names");
+  return btn;
+}
+
 function updateTimerButton() {
   const btn = $app.querySelector(".timer-wrap > button");
   if (!btn) return;
@@ -792,6 +809,7 @@ function renderBoardShell() {
     h("div", { class: "spacer" }),
     buildTimerControl(),
     shareBtn,
+    buildNamesToggle(),
     meBtn,
   );
 
@@ -1087,7 +1105,8 @@ function noteCard(note) {
 
   card.append(
     textEl,
-    h("div", { class: "note-foot" }, author,
+    h("div", { class: "note-foot" },
+      store.showNames ? author : null,
       h("span", { class: "note-tools" }, voteBtn, canModify ? editBtn : null, canModify ? delBtn : null)),
   );
   delete note._entering;
