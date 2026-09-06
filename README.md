@@ -85,6 +85,7 @@ it the app runs open.
 | GET | `/api/teams` | list teams (with board counts) |
 | POST | `/api/teams` | create team `{name}` |
 | GET/PATCH | `/api/teams/:id` | get / rename team |
+| DELETE | `/api/teams/:id` | delete team + all its boards, notes and votes |
 | GET | `/api/teams/:id/boards` | team's boards (`?trash=1` for trash) |
 | POST | `/api/boards` | create board `{title, team_id?}` |
 | PATCH | `/api/boards/:id` | rename `{title}` |

@@ -406,24 +406,63 @@ async function renderTeamAdmin(seq = routeSeq, teamId) {
       body.append(h("div", { class: "empty-hint" },
         h("div", { class: "doodle" }, "No boards to manage"),
         h("p", {}, "Create one from the team page first.")));
-      return;
+    } else {
+      body.append(
+        h("div", { class: "section-label" }, `${active.length} board${active.length === 1 ? "" : "s"}`),
+        h("div", { class: "admin-list" }, ...active.map(adminRow)),
+      );
     }
-    body.append(
-      h("div", { class: "section-label" }, `${active.length} board${active.length === 1 ? "" : "s"}`),
-      h("div", { class: "admin-list" }, ...active.map(adminRow)),
-    );
   } else {
     if (!trash.length) {
       body.append(h("div", { class: "empty-hint" },
         h("div", { class: "doodle" }, "Trash is empty"),
         h("p", {}, "Deleted boards wait here for 30 days before they are purged.")));
+    } else {
+      body.append(
+        h("div", { class: "section-label" }, `deleted · auto-purged after 30 days`),
+        h("div", { class: "admin-list" }, ...trash.map(trashRow)),
+      );
+    }
+  }
+
+  // danger zone: delete the whole team
+  const totalBoards = active.length + trash.length;
+  const boardsWord = `${totalBoards} board${totalBoards === 1 ? "" : "s"}`;
+  const delTeamBtn = h("button", { class: "btn ghost admin-del", onclick: confirmTeamDelete }, "Delete team");
+  let confirmTimer;
+  function confirmTeamDelete() {
+    if (delTeamBtn.dataset.confirm) {
+      clearTimeout(confirmTimer);
+      deleteTeam();
       return;
     }
-    body.append(
-      h("div", { class: "section-label" }, `deleted · auto-purged after 30 days`),
-      h("div", { class: "admin-list" }, ...trash.map(trashRow)),
-    );
+    delTeamBtn.dataset.confirm = "1";
+    delTeamBtn.classList.add("confirm");
+    delTeamBtn.textContent = `Sure? ${boardsWord} gone`;
+    confirmTimer = setTimeout(() => {
+      delete delTeamBtn.dataset.confirm;
+      delTeamBtn.classList.remove("confirm");
+      delTeamBtn.textContent = "Delete team";
+    }, 3200);
   }
+  async function deleteTeam() {
+    try {
+      await api(`/api/teams/${teamId}`, { method: "DELETE" });
+      toast(`Team deleted — ${boardsWord} removed`);
+      location.hash = "#/";
+    } catch {
+      toast("Delete failed — try again");
+    }
+  }
+  body.append(
+    h("div", { class: "danger-zone" },
+      h("div", { class: "dz-text" },
+        h("h3", {}, "Danger zone"),
+        h("p", {}, `Deleting this team permanently removes all ${boardsWord} — including the trash — with every note and vote. There is no undo.`),
+      ),
+      delTeamBtn,
+    ),
+  );
 }
 
 function adminTabButton(tab, label) {

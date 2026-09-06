@@ -145,6 +145,21 @@ export default {
           await env.DB.prepare("UPDATE teams SET name = ? WHERE id = ?").bind(name, teamId).run();
           return json({ team: { ...team, name } });
         }
+        if (method === "DELETE") {
+          // purge the team and every board it owns (active + trash), notes and votes included
+          const { results: boards } = await env.DB.prepare("SELECT id FROM boards WHERE team_id = ?")
+            .bind(teamId)
+            .all();
+          await env.DB.batch([
+            ...boards.flatMap((b) => [
+              env.DB.prepare("DELETE FROM votes WHERE note_id IN (SELECT id FROM notes WHERE board_id = ?)").bind(b.id),
+              env.DB.prepare("DELETE FROM notes WHERE board_id = ?").bind(b.id),
+              env.DB.prepare("DELETE FROM boards WHERE id = ?").bind(b.id),
+            ]),
+            env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(teamId),
+          ]);
+          return json({ ok: true, removed_boards: boards.length });
+        }
       }
 
       // ---- team-scoped boards list (active, or ?trash=1) ----

@@ -893,3 +893,28 @@ input, textarea { font: inherit; color: inherit; }
 .gate-lock { display: inline-flex; color: var(--accent); margin-bottom: 4px; }
 .gate-lock svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .gate-err { color: #b3361e !important; font-weight: 600; margin: 10px 0 0 !important; }
+
+/* ---------- team danger zone ---------- */
+.danger-zone {
+  margin-top: 44px;
+  border: 1.5px solid rgba(179, 54, 30, 0.35);
+  background: rgba(179, 54, 30, 0.05);
+  border-radius: 4px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.danger-zone .dz-text { flex: 1; min-width: 0; }
+.danger-zone h3 {
+  margin: 0 0 2px;
+  font-family: var(--font-marker);
+  font-weight: 600;
+  font-size: 25px;
+  line-height: 1.1;
+  color: #b3361e;
+}
+.danger-zone p { margin: 0; color: var(--ink-soft); font-size: 13px; }
+@media (max-width: 640px) {
+  .danger-zone { flex-wrap: wrap; }
+}
