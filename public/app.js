@@ -1044,17 +1044,14 @@ function noteCard(note) {
   const editBtn = h("button", { class: "tool-btn edit", title: "Edit note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
 
-  // drag grip: move this note within its column or across columns (owner-only)
-  let grip = null;
-  if (canModify) {
-    grip = h("button", { class: "drag-grip", title: "Drag to move", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
-    grip.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      try { grip.setPointerCapture(e.pointerId); } catch {}
-      startDrag(e, note, card);
-    });
-    card.prepend(grip);
-  }
+  // drag grip: anyone can move any note (drag is open by design)
+  const grip = h("button", { class: "drag-grip", title: "Drag to move", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
+  grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { grip.setPointerCapture(e.pointerId); } catch {}
+    startDrag(e, note, card);
+  });
+  card.prepend(grip);
 
   // delete (two-step confirm)
   const delBtn = h("button", { class: "tool-btn del", title: "Delete note", onclick: () => confirmDelete(note, delBtn) },

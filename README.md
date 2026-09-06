@@ -92,7 +92,7 @@ it the app runs open.
 | DELETE | `/api/boards/:id` | move board to trash (soft delete) |
 | DELETE | `/api/boards/:id?permanent=1` | purge board + notes + votes |
 | POST | `/api/boards/:id/restore` | restore from trash |
-| POST | `/api/notes/:id/move` | move `{column_key, before_id, voter}` (owner only) |
+| POST | `/api/notes/:id/move` | move `{column_key, before_id}` (open to everyone) |
 | POST | `/api/boards/:id/timer` | start silent-writing timer `{minutes}` |
 | DELETE | `/api/boards/:id/timer` | stop the timer |
 | GET | `/api/boards/:id?voter=` | full board state incl. notes + `voted` flag |

@@ -362,14 +362,12 @@ export default {
         }
       }
 
-      // ---- move a note (owner-locked): change column and/or position ----
+      // ---- move a note (open to everyone): change column and/or position ----
       if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)\/move$/)) && method === "POST") {
         const noteId = m[1];
-        const note = await env.DB.prepare("SELECT id, owner_id, board_id FROM notes WHERE id = ?").bind(noteId).first();
+        const note = await env.DB.prepare("SELECT id, board_id FROM notes WHERE id = ?").bind(noteId).first();
         if (!note) return json({ error: "note_not_found" }, 404);
         const body = await readBody(request);
-        const voter = (body.voter || "").toString().slice(0, 64);
-        if (note.owner_id && note.owner_id !== voter) return json({ error: "not_allowed" }, 403);
         const column_key = (body.column_key || "").toString();
         if (!COLUMNS.has(column_key)) return json({ error: "invalid_column" }, 400);
 
