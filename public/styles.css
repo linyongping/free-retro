@@ -918,3 +918,39 @@ input, textarea { font: inherit; color: inherit; }
 @media (max-width: 640px) {
   .danger-zone { flex-wrap: wrap; }
 }
+
+/* ---------- drag to move ---------- */
+.drag-grip {
+  position: absolute;
+  left: 6px;
+  top: -9px;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.75);
+  color: rgba(63, 56, 38, 0.55);
+  cursor: grab;
+  touch-action: none; /* pointer dragging, not page scroll */
+  box-shadow: 0 1px 3px rgba(84, 62, 18, 0.25);
+  z-index: 3;
+}
+.drag-grip:hover { color: var(--ink); background: #fff; }
+.drag-grip:active { cursor: grabbing; }
+.drag-grip svg { width: 13px; height: 13px; fill: currentColor; }
+.drag-ghost {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  opacity: 0.95;
+  box-shadow: 0 18px 40px -12px rgba(84, 62, 18, 0.55);
+  transform: rotate(1.5deg);
+  transition: none;
+}
+.note.drag-source { opacity: 0.35; }
+.drop-indicator {
+  height: 0;
+  border-top: 3px dashed var(--accent);
+  margin: 6px 4px;
+  border-radius: 2px;
+  animation: pop-in 0.15s ease;
+}

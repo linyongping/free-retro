@@ -235,11 +235,11 @@ export default {
           if (board.timer_ends_at && board.timer_ends_at < Date.now()) board.timer_ends_at = null;
           const voter = (url.searchParams.get("voter") || "").slice(0, 64);
           const { results: notes } = await env.DB.prepare(
-            `SELECT n.id, n.column_key, n.text, n.author, n.created_at, n.updated_at,
+            `SELECT n.id, n.column_key, n.text, n.author, n.created_at, n.updated_at, n.sort_order,
                (SELECT COUNT(*) FROM votes v WHERE v.note_id = n.id) AS vote_count,
                (SELECT COUNT(*) FROM votes v WHERE v.note_id = n.id AND v.voter = ?1) AS voted,
                CASE WHEN n.owner_id IS NULL OR n.owner_id = ?1 THEN 1 ELSE 0 END AS mine
-             FROM notes n WHERE n.board_id = ?2 ORDER BY n.created_at ASC`
+             FROM notes n WHERE n.board_id = ?2 ORDER BY n.sort_order ASC`
           )
             .bind(voter, boardId)
             .all();
@@ -316,10 +316,16 @@ export default {
 
         const id = rid(10);
         const now = Date.now();
-        await env.DB.prepare(
-          "INSERT INTO notes (id, board_id, column_key, text, author, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        const maxRow = await env.DB.prepare(
+          "SELECT MAX(sort_order) AS m FROM notes WHERE board_id = ? AND column_key = ?"
         )
-          .bind(id, boardId, column_key, text, author, voter, now, now)
+          .bind(boardId, column_key)
+          .first();
+        const sort_order = (maxRow?.m || 0) + 1000;
+        await env.DB.prepare(
+          "INSERT INTO notes (id, board_id, column_key, text, author, owner_id, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+          .bind(id, boardId, column_key, text, author, voter, sort_order, now, now)
           .run();
         return json(
           { note: { id, column_key, text, author, created_at: now, updated_at: now, vote_count: 0, voted: 0, mine: voter ? 1 : 0 } },
@@ -354,6 +360,50 @@ export default {
           ]);
           return json({ ok: true });
         }
+      }
+
+      // ---- move a note (owner-locked): change column and/or position ----
+      if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)\/move$/)) && method === "POST") {
+        const noteId = m[1];
+        const note = await env.DB.prepare("SELECT id, owner_id, board_id FROM notes WHERE id = ?").bind(noteId).first();
+        if (!note) return json({ error: "note_not_found" }, 404);
+        const body = await readBody(request);
+        const voter = (body.voter || "").toString().slice(0, 64);
+        if (note.owner_id && note.owner_id !== voter) return json({ error: "not_allowed" }, 403);
+        const column_key = (body.column_key || "").toString();
+        if (!COLUMNS.has(column_key)) return json({ error: "invalid_column" }, 400);
+
+        const beforeId = (body.before_id || "").toString() || null;
+        let sort_order = null;
+        if (beforeId) {
+          const before = await env.DB.prepare(
+            "SELECT sort_order FROM notes WHERE id = ? AND board_id = ? AND column_key = ?"
+          )
+            .bind(beforeId, note.board_id, column_key)
+            .first();
+          if (before) {
+            const above = await env.DB.prepare(
+              "SELECT sort_order FROM notes WHERE board_id = ? AND column_key = ? AND id != ? AND id != ? AND sort_order < ? ORDER BY sort_order DESC LIMIT 1"
+            )
+              .bind(note.board_id, column_key, noteId, beforeId, before.sort_order)
+              .first();
+            const upper = before.sort_order;
+            const lower = above ? above.sort_order : upper - 2000;
+            sort_order = (upper + lower) / 2;
+          }
+        }
+        if (sort_order == null) {
+          const maxRow = await env.DB.prepare(
+            "SELECT MAX(sort_order) AS m FROM notes WHERE board_id = ? AND column_key = ?"
+          )
+            .bind(note.board_id, column_key)
+            .first();
+          sort_order = (maxRow?.m || 0) + 1000;
+        }
+        await env.DB.prepare("UPDATE notes SET column_key = ?, sort_order = ?, updated_at = ? WHERE id = ?")
+          .bind(column_key, sort_order, Date.now(), noteId)
+          .run();
+        return json({ ok: true, column_key, sort_order });
       }
 
       // ---- toggle vote ----

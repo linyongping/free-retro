@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS notes (
   text       TEXT NOT NULL,
   author     TEXT NOT NULL DEFAULT '',
   owner_id   TEXT,                -- voter id of the creator; NULL = legacy, editable by anyone
+  sort_order REAL,                -- manual position within its column (smaller = higher)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

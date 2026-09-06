@@ -33,6 +33,7 @@ const ICONS = {
   clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
   lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>',
+  grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>',
 };
 
 // ---------- identity & palette ----------
@@ -878,11 +879,13 @@ function buildColumn(col) {
 
 // ---------- notes ----------
 function sortNotes(a, b) {
-  if (b.vote_count !== a.vote_count) return b.vote_count - a.vote_count;
-  return a.created_at - b.created_at;
+  return (a.sort_order ?? a.created_at) - (b.sort_order ?? b.created_at);
 }
 
+let dragInProgress = false; // freeze note re-renders while a drag is live
+
 function renderNotes() {
+  if (dragInProgress) return; // a live drag holds the DOM
   if ($app.querySelector(".note-edit-ta")) return; // don't stomp an open editor
   for (const col of COLUMNS) {
     const wrap = $app.querySelector(`.notes[data-column="${col.key}"]`);
@@ -897,6 +900,119 @@ function renderNotes() {
         { went_well: "Wins go here — big or small.", to_improve: "What tripped you up?", actions: "What will we change next sprint?" }[col.key]));
     }
   }
+}
+
+// ---------- drag to move notes (vertical within a column, or across columns) ----------
+let dropIndicator = null;
+
+function startDrag(e, note, card) {
+  const rect = card.getBoundingClientRect();
+  const ghost = card.cloneNode(true);
+  ghost.classList.add("drag-ghost");
+  ghost.style.width = `${rect.width}px`;
+  document.body.append(ghost);
+  card.classList.add("drag-source");
+  dragInProgress = true;
+  const offX = e.clientX - rect.left;
+  const offY = e.clientY - rect.top;
+  let target = null;
+
+  const move = (ev) => {
+    ghost.style.left = `${ev.clientX - offX}px`;
+    ghost.style.top = `${ev.clientY - offY}px`;
+    target = findDropTarget(ev.clientX, ev.clientY, card);
+    paintIndicator(target);
+  };
+  const finish = (apply) => {
+    ghost.remove();
+    card.classList.remove("drag-source");
+    clearIndicator();
+    dragInProgress = false;
+    if (apply && target) applyMove(note, target);
+    else renderNotes();
+  };
+  const onMove = (ev) => move(ev);
+  const onUp = () => {
+    card.removeEventListener("pointermove", onMove);
+    card.removeEventListener("pointerup", onUp);
+    card.removeEventListener("pointercancel", onCancel);
+    finish(true);
+  };
+  const onCancel = () => {
+    card.removeEventListener("pointermove", onMove);
+    card.removeEventListener("pointerup", onUp);
+    card.removeEventListener("pointercancel", onCancel);
+    finish(false);
+  };
+  card.addEventListener("pointermove", onMove);
+  card.addEventListener("pointerup", onUp);
+  card.addEventListener("pointercancel", onCancel);
+  move(e);
+}
+
+// where would a note dropped at (clientX, clientY) land?
+function findDropTarget(clientX, clientY, draggedCard) {
+  const columns = [...$app.querySelectorAll(".column")];
+  let column = null;
+  let bestDist = Infinity;
+  for (const col of columns) {
+    const r = col.getBoundingClientRect();
+    const dist = clientX >= r.left && clientX <= r.right ? 0 : Math.min(Math.abs(clientX - r.left), Math.abs(clientX - r.right));
+    if (dist < bestDist) { bestDist = dist; column = col; }
+  }
+  if (!column) return null;
+  const columnKey = [...column.classList].find((c) => c.startsWith("col-"))?.slice(4);
+  if (!columnKey) return null;
+
+  const cards = [...column.querySelectorAll(".note")].filter((c) => !c.classList.contains("drag-source"));
+  let beforeEl = null;
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) { beforeEl = c; break; }
+  }
+  return { columnKey, beforeId: beforeEl?.dataset.id || null, columnEl: column, beforeEl };
+}
+
+function paintIndicator(target) {
+  clearIndicator();
+  if (!target || !target.columnEl) return;
+  dropIndicator = h("div", { class: "drop-indicator" });
+  const notesWrap = target.columnEl.querySelector(".notes");
+  if (target.beforeEl) notesWrap.insertBefore(dropIndicator, target.beforeEl);
+  else notesWrap.append(dropIndicator);
+}
+
+function clearIndicator() {
+  dropIndicator?.remove();
+  dropIndicator = null;
+}
+
+async function applyMove(note, target) {
+  // optimistic local placement: just above the before-note, or appended
+  const siblings = state.notes.filter((n) => n.column_key === target.columnKey && n.id !== note.id).sort(sortNotes);
+  const before = siblings.find((n) => n.id === target.beforeId);
+  let provisional;
+  if (before) {
+    const idx = siblings.indexOf(before);
+    const above = siblings[idx - 1];
+    provisional = above ? (above.sort_order + before.sort_order) / 2 : before.sort_order - 500;
+  } else {
+    provisional = (siblings.length ? siblings[siblings.length - 1].sort_order : 0) + 1000;
+  }
+  note.column_key = target.columnKey;
+  note.sort_order = provisional;
+  renderNotes();
+  try {
+    const res = await api(`/api/notes/${note.id}/move`, {
+      method: "POST",
+      body: { column_key: target.columnKey, before_id: target.beforeId, voter: store.voter },
+    });
+    note.column_key = res.column_key;
+    note.sort_order = res.sort_order;
+  } catch (err) {
+    if (err?.status !== 401) toast("Move failed — will resync");
+  }
+  renderNotes();
 }
 
 function noteCard(note) {
@@ -927,6 +1043,18 @@ function noteCard(note) {
   const canModify = !!note.mine;
   const editBtn = h("button", { class: "tool-btn edit", title: "Edit note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
+
+  // drag grip: move this note within its column or across columns (owner-only)
+  let grip = null;
+  if (canModify) {
+    grip = h("button", { class: "drag-grip", title: "Drag to move", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { grip.setPointerCapture(e.pointerId); } catch {}
+      startDrag(e, note, card);
+    });
+    card.prepend(grip);
+  }
 
   // delete (two-step confirm)
   const delBtn = h("button", { class: "tool-btn del", title: "Delete note", onclick: () => confirmDelete(note, delBtn) },
@@ -1025,8 +1153,8 @@ setInterval(async () => {
   try {
     const data = await api(`/api/boards/${state.board.id}?voter=${encodeURIComponent(store.voter)}`);
     state.pollFailures = 0;
-    const before = JSON.stringify(state.notes.map(({ id, text, vote_count, voted, author, column_key, updated_at }) => [id, text, vote_count, voted, author, column_key, updated_at]));
-    const after = JSON.stringify(data.notes.map(({ id, text, vote_count, voted, author, column_key, updated_at }) => [id, text, vote_count, voted, author, column_key, updated_at]));
+    const before = JSON.stringify(state.notes.map(({ id, text, vote_count, voted, author, column_key, sort_order, updated_at }) => [id, text, vote_count, voted, author, column_key, sort_order, updated_at]));
+    const after = JSON.stringify(data.notes.map(({ id, text, vote_count, voted, author, column_key, sort_order, updated_at }) => [id, text, vote_count, voted, author, column_key, sort_order, updated_at]));
     state.notes = data.notes;
     if (before !== after) renderNotes();
     state.serverOffset = (data.now || Date.now()) - Date.now();
