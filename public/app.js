@@ -180,7 +180,7 @@ async function renderHome(seq = routeSeq) {
   const input = h("input", {
     type: "text", maxlength: "60", placeholder: "e.g. Platform team",
     "aria-label": "Team name",
-    onkeydown: (e) => { if (e.key === "Enter") createBtn.click(); },
+    onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) createBtn.click(); },
   });
   const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create team");
   async function doCreate() {
@@ -315,7 +315,7 @@ async function renderTeam(seq = routeSeq, teamId) {
     type: "text", maxlength: "120", value: defaultBoardTitle(),
     "aria-label": "Board title",
     onfocus: (e) => e.target.select(),
-    onkeydown: (e) => { if (e.key === "Enter") createBtn.click(); },
+    onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) createBtn.click(); },
   });
   const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create board");
   async function doCreate() {
@@ -865,8 +865,8 @@ function buildColumn(col) {
   const ta = h("textarea", {
     placeholder: "Type, then hit Enter…", "aria-label": `Add note to ${col.title}`,
     onkeydown: (e) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
-      if (e.key === "Escape") closeComposer();
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+      if (e.key === "Escape" && !e.isComposing) closeComposer();
     },
   });
   const addBtn = h("button", { class: "btn accent", onclick: submit }, h("span", { html: ICONS.send }), "Add");
@@ -1220,7 +1220,7 @@ function showNameModal() {
   const input = h("input", {
     type: "text", maxlength: "40", placeholder: "e.g. Amy", value: store.name,
     "aria-label": "Your name",
-    onkeydown: (e) => { if (e.key === "Enter") save(); },
+    onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) save(); },
   });
   function save() {
     store.name = input.value;
@@ -1248,7 +1248,7 @@ function showGate() {
   const input = h("input", {
     type: "password", placeholder: "Passcode", "aria-label": "Site passcode",
     autocomplete: "current-password",
-    onkeydown: (e) => { if (e.key === "Enter") unlock(); },
+    onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) unlock(); },
   });
   const err = h("p", { class: "gate-err hidden" }, "Wrong passcode — try again");
   const btn = h("button", { class: "btn accent", onclick: unlock }, "Unlock");
