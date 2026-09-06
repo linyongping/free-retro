@@ -958,3 +958,10 @@ input, textarea { font: inherit; color: inherit; }
 /* names visibility toggle */
 .names-toggle.on { background: var(--ink); color: #fffdf4; border-color: var(--ink); }
 .names-toggle.on:hover { background: #52492f; }
+
+/* icon/text vertical alignment: inline svg sits on the text baseline which
+   pushes it above center inside flex buttons — render icons as blocks */
+button svg,
+a.back svg,
+.gate-lock svg,
+.timer-banner .t-icon svg { display: block; }
