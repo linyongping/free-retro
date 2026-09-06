@@ -63,6 +63,15 @@ echo "your-passcode" | npx wrangler secret put SITE_PASSCODE   # site lock
 npm run deploy
 ```
 
+## Observability
+
+Worker logs (errors + `console.*`) are shipped to Cloudflare Workers Logs
+(`observability.enabled` in wrangler.jsonc): free tier keeps 200k events/day
+for 3 days — view them under Workers & Pages → free-retro → Logs, or stream
+live with `npx wrangler tail`. Request/error metrics and the trash-cleanup
+cron history are in the same dashboard; D1 query/storage metrics live on the
+D1 database page.
+
 ## Site passcode
 
 When the `SITE_PASSCODE` secret is set, the whole site sits behind a shared
