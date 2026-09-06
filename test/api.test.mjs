@@ -4,10 +4,30 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
 
 const BASE = process.env.TEST_BASE ?? "http://localhost:8787";
 let cookie = "";
+let sitePasscode = process.env.TEST_PASSCODE ?? "";
 const createdTeamIds = [];
+
+function wsToken() {
+  const exp = String(Date.now() + 3600 * 1000);
+  const sig = createHmac("sha256", sitePasscode).update(exp).digest("hex");
+  return `${exp}.${sig}`;
+}
+
+// resolves on open, close/error, or after a 3s timeout
+function wsConnect(url) {
+  return new Promise((resolve) => {
+    const result = { ws: new WebSocket(url), opened: false, closed: false, messages: [] };
+    result.ws.onopen = () => { result.opened = true; resolve(result); };
+    result.ws.onclose = () => { result.closed = true; resolve(result); };
+    result.ws.onerror = () => { result.closed = true; resolve(result); };
+    result.ws.onmessage = (e) => result.messages.push(JSON.parse(e.data));
+    setTimeout(() => resolve(result), 3000);
+  });
+}
 
 async function api(path, { method = "GET", body, voter } = {}) {
   const res = await fetch(BASE + path, {
@@ -41,6 +61,7 @@ before(async () => {
     assert.ok(passcode, "site is locked but no passcode found (set TEST_PASSCODE or .dev.vars)");
     const login = await api("/api/auth/login", { method: "POST", body: { passcode } });
     assert.equal(login.status, 200, "login failed — passcode rejected");
+    sitePasscode = passcode;
   }
 });
 
@@ -188,6 +209,28 @@ test("trash: soft delete, restore, and permanent purge", async () => {
   assert.equal(purge.status, 200);
   const trashAfter = await api(`/api/teams/${tid}/boards?trash=1`);
   assert.ok(!trashAfter.data.boards.some((x) => x.id === b.id));
+});
+
+test("ws: handshake requires a session token", async () => {
+  const conn = await wsConnect(BASE.replace(/^http/, "ws") + "/api/boards/aaaaaaaa/ws");
+  assert.equal(conn.opened, false, "unauthenticated websocket must not open");
+});
+
+test("ws: connected clients receive a change ping on mutations", async () => {
+  const teams = (await api("/api/teams")).data.teams;
+  const tid = teams[teams.length - 1].id;
+  const { boards } = (await api(`/api/teams/${tid}/boards`)).data;
+  const bid = boards[boards.length - 1].id;
+  const token = wsToken();
+  const conn = await wsConnect(`${BASE.replace(/^http/, "ws")}/api/boards/${bid}/ws?token=${encodeURIComponent(token)}`);
+  assert.equal(conn.opened, true, "authenticated websocket should open");
+  await api(`/api/boards/${bid}/notes`, {
+    method: "POST",
+    body: { column_key: "went_well", text: "ws ping check", author: "QA", voter: "qa" },
+  });
+  await new Promise((r) => setTimeout(r, 1200));
+  conn.ws.close(); // release the socket so the test process can exit
+  assert.ok(conn.messages.some((m) => m.type === "changed"), `expected a changed ping, got ${JSON.stringify(conn.messages)}`);
 });
 
 test("team delete: cascades to boards, notes and votes", async () => {

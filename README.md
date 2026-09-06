@@ -5,7 +5,10 @@ A tiny, free retrospective board. Create a team, share the link, drop sticky not
 **Live:** https://free-retro.haigr.workers.dev
 
 - Classic 3-column retro: *What went well / What could improve / Action items*
-- Multiplayer sync (3s polling) — see teammates' notes and votes appear live
+- Multiplayer sync in real time: every open board connects to a per-board
+  Durable Object room over WebSocket (hibernation API, so idle connections
+  are free); any change pings the room and clients refetch. If the socket
+  drops, the board degrades to slow lazy polling until it reconnects
 - One vote per person per note (toggle), notes sorted by votes
 - Note author names are hidden by default; the "Names" toggle in the board
   topbar shows them per viewer (stored in each browser)
@@ -92,6 +95,7 @@ it the app runs open.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/auth/check` | session probe (`{ok}`) |
+| GET | `/api/boards/:id/ws` | websocket room (cookie session, or `?token=`) |
 | POST | `/api/auth/login` | exchange passcode for session cookie |
 | GET | `/api/teams` | list teams (with board counts) |
 | POST | `/api/teams` | create team `{name}` |

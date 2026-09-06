@@ -1,5 +1,7 @@
 // Free Retro — Worker API over D1.
 // Static assets in ./public are served first; everything under /api/* lands here.
+import { BoardRoom } from "./room.js";
+export { BoardRoom };
 
 const ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"; // unambiguous lowercase
 const COLUMNS = new Set(["went_well", "to_improve", "actions"]);
@@ -27,15 +29,32 @@ async function makeToken(passcode) {
   return `${exp}.${await hmacHex(passcode, exp)}`;
 }
 
-async function authed(request, env) {
+async function sessionValid(env, token) {
   const passcode = (env.SITE_PASSCODE || "").trim();
   if (!passcode) return true; // no passcode configured → open access
-  const token = getCookie(request, AUTH_COOKIE) || "";
   const dot = token.indexOf(".");
   if (dot <= 0) return false;
   const [exp, sig] = [token.slice(0, dot), token.slice(dot + 1)];
   if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
   return sig === (await hmacHex(passcode, exp));
+}
+
+async function authed(request, env, tokenOverride) {
+  const passcode = (env.SITE_PASSCODE || "").trim();
+  if (!passcode) return true; // no passcode configured → open access
+  const token = tokenOverride ?? (getCookie(request, AUTH_COOKIE) || "");
+  return sessionValid(env, token);
+}
+
+// wake the board's room so it pings every connected client to refetch state
+function notifyBoardChange(env, boardId) {
+  const stub = env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(boardId));
+  return stub
+    .fetch("https://board-room/notify", {
+      method: "POST",
+      body: JSON.stringify({ type: "changed", at: Date.now() }),
+    })
+    .catch(() => {});
 }
 
 function rid(len) {
@@ -79,7 +98,7 @@ export default {
     console.log(`purged ${results.length} board(s) past the 30-day trash window`);
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -106,8 +125,17 @@ export default {
           },
         });
       }
-      if (path.startsWith("/api/") && !(await authed(request, env))) {
+      // /ws handles its own auth (handshakes can't rely on the cookie alone)
+      if (path.startsWith("/api/") && !path.endsWith("/ws") && !(await authed(request, env))) {
         return json({ error: "unauthorized" }, 401);
+      }
+
+      // ---- live board updates (websocket room; auth via cookie or ?token=) ----
+      if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)\/ws$/)) && method === "GET") {
+        if (!(await authed(request, env, url.searchParams.get("token") || undefined))) {
+          return json({ error: "unauthorized" }, 401);
+        }
+        return env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(m[1])).fetch(request);
       }
 
       // ---- teams ----
@@ -251,6 +279,7 @@ export default {
           const title = (body.title || "").toString().trim().slice(0, 120);
           if (!title) return json({ error: "invalid_title" }, 400);
           await env.DB.prepare("UPDATE boards SET title = ? WHERE id = ?").bind(title, boardId).run();
+          ctx.waitUntil(notifyBoardChange(env, boardId));
           return json({ board: { ...board, title } });
         }
       }
@@ -266,18 +295,21 @@ export default {
         const now = Date.now();
         const timer_ends_at = now + Math.round(minutes * 60_000);
         await env.DB.prepare("UPDATE boards SET timer_ends_at = ? WHERE id = ?").bind(timer_ends_at, boardId).run();
+        ctx.waitUntil(notifyBoardChange(env, boardId));
         return json({ board: { id: boardId, timer_ends_at }, now });
       }
 
       if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)\/timer$/)) && method === "DELETE") {
         const boardId = m[1];
         await env.DB.prepare("UPDATE boards SET timer_ends_at = NULL WHERE id = ?").bind(boardId).run();
+        ctx.waitUntil(notifyBoardChange(env, boardId));
         return json({ board: { id: boardId, timer_ends_at: null }, now: Date.now() });
       }
 
       // ---- restore from trash ----
       if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)\/restore$/)) && method === "POST") {
         await env.DB.prepare("UPDATE boards SET deleted_at = NULL WHERE id = ?").bind(m[1]).run();
+        ctx.waitUntil(notifyBoardChange(env, m[1]));
         return json({ ok: true });
       }
 
@@ -292,11 +324,13 @@ export default {
           stmts.push(env.DB.prepare("DELETE FROM notes WHERE board_id = ?").bind(boardId));
           stmts.push(env.DB.prepare("DELETE FROM boards WHERE id = ?").bind(boardId));
           await env.DB.batch(stmts);
+          ctx.waitUntil(notifyBoardChange(env, boardId));
           return json({ ok: true, purged: true });
         }
         await env.DB.prepare("UPDATE boards SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
           .bind(Date.now(), boardId)
           .run();
+        ctx.waitUntil(notifyBoardChange(env, boardId));
         return json({ ok: true });
       }
 
@@ -327,6 +361,7 @@ export default {
         )
           .bind(id, boardId, column_key, text, author, voter, sort_order, now, now)
           .run();
+        ctx.waitUntil(notifyBoardChange(env, boardId));
         return json(
           { note: { id, column_key, text, author, sort_order, created_at: now, updated_at: now, vote_count: 0, voted: 0, mine: voter ? 1 : 0 } },
           201
@@ -336,7 +371,7 @@ export default {
       // ---- single note: edit / delete (open to everyone; owner_id kept as metadata) ----
       if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)$/))) {
         const noteId = m[1];
-        const note = await env.DB.prepare("SELECT id FROM notes WHERE id = ?").bind(noteId).first();
+        const note = await env.DB.prepare("SELECT id, board_id FROM notes WHERE id = ?").bind(noteId).first();
         if (!note) return json({ error: "note_not_found" }, 404);
 
         if (method === "PATCH") {
@@ -346,6 +381,7 @@ export default {
           await env.DB.prepare("UPDATE notes SET text = ?, updated_at = ? WHERE id = ?")
             .bind(text, Date.now(), noteId)
             .run();
+          ctx.waitUntil(notifyBoardChange(env, note.board_id));
           return json({ ok: true });
         }
 
@@ -354,6 +390,7 @@ export default {
             env.DB.prepare("DELETE FROM votes WHERE note_id = ?").bind(noteId),
             env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(noteId),
           ]);
+          ctx.waitUntil(notifyBoardChange(env, note.board_id));
           return json({ ok: true });
         }
       }
@@ -397,13 +434,14 @@ export default {
         await env.DB.prepare("UPDATE notes SET column_key = ?, sort_order = ?, updated_at = ? WHERE id = ?")
           .bind(column_key, sort_order, Date.now(), noteId)
           .run();
+        ctx.waitUntil(notifyBoardChange(env, note.board_id));
         return json({ ok: true, column_key, sort_order });
       }
 
       // ---- toggle vote ----
       if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)\/vote$/)) && method === "POST") {
         const noteId = m[1];
-        const note = await env.DB.prepare("SELECT id FROM notes WHERE id = ?").bind(noteId).first();
+        const note = await env.DB.prepare("SELECT id, board_id FROM notes WHERE id = ?").bind(noteId).first();
         if (!note) return json({ error: "note_not_found" }, 404);
 
         const body = await readBody(request);
@@ -423,6 +461,7 @@ export default {
         const row = await env.DB.prepare("SELECT COUNT(*) AS c FROM votes WHERE note_id = ?")
           .bind(noteId)
           .first();
+        ctx.waitUntil(notifyBoardChange(env, note.board_id));
         return json({ vote_count: row.c, voted: existing ? 0 : 1 });
       }
 

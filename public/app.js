@@ -138,6 +138,7 @@ async function route() {
   const seq = ++routeSeq;
   closeTimerMenu(); // never leak the menu's document listener across navigations
   const hash = location.hash || "#/";
+  if (!hash.startsWith("#/b/")) closeBoardWS();
   const bm = hash.match(/^#\/b\/([a-z0-9]+)/);
   const am = hash.match(/^#\/t\/([a-z0-9]+)\/admin$/);
   const tm = hash.match(/^#\/t\/([a-z0-9]+)$/);
@@ -784,6 +785,7 @@ async function loadBoard(id, seq = routeSeq) {
   if (seq !== routeSeq) return; // a newer route took over while we fetched
   renderBoardShell();
   applyTimerState();
+  connectBoardWS(id);
 
   if (!store.name) showNameModal();
 }
@@ -1183,9 +1185,10 @@ async function doDelete(note, card) {
 }
 
 // ---------- polling sync ----------
-setInterval(async () => {
-  if (state.route.name !== "board" || !state.board || document.hidden) return;
-  if (state.titleEditing) return;
+// ---------- live sync: websocket push (board room), lazy polling as fallback ----------
+async function refreshBoard() {
+  if (state.route.name !== "board" || !state.board) return;
+  if (state.titleEditing || dragInProgress || document.hidden) return;
   try {
     const data = await api(`/api/boards/${state.board.id}?voter=${encodeURIComponent(store.voter)}`);
     state.pollFailures = 0;
@@ -1212,7 +1215,85 @@ setInterval(async () => {
     state.pollFailures++;
     if (state.pollFailures === 3) toast("Connection hiccup — retrying…");
   }
-}, 3000);
+}
+
+let boardWS = null;
+let boardWSBoardId = null;
+let wsRetryDelay = 2000;
+let lazyTimer = null;
+let lazyDelay = 5000;
+
+function connectBoardWS(boardId) {
+  stopLazyPoll();
+  if (boardWS && boardWSBoardId === boardId) return; // already wired to this room
+  if (boardWS) { const old = boardWS; boardWS = null; boardWSBoardId = null; try { old.onclose = null; old.close(); } catch {} }
+
+  boardWSBoardId = boardId;
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  let sock;
+  try {
+    sock = new WebSocket(`${proto}://${location.host}/api/boards/${boardId}/ws`);
+  } catch {
+    scheduleLazyPoll(boardId);
+    scheduleWSReconnect(boardId);
+    return;
+  }
+  boardWS = sock;
+  sock.onopen = () => {
+    wsRetryDelay = 2000;
+    stopLazyPoll(); // push is live again
+    refreshBoard();
+  };
+  sock.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "changed") refreshBoard();
+    } catch {}
+  };
+  sock.onclose = () => {
+    if (boardWS !== sock) return; // superseded by a newer connection
+    boardWS = null;
+    if (boardWSBoardId !== boardId || state.route.name !== "board") return;
+    scheduleLazyPoll(boardId); // degrade to slow polling while reconnecting
+    const delay = wsRetryDelay;
+    wsRetryDelay = Math.min(wsRetryDelay * 2, 30000);
+    setTimeout(() => {
+      if (boardWSBoardId === boardId && !boardWS && state.route.name === "board") connectBoardWS(boardId);
+    }, delay);
+  };
+  sock.onerror = () => { try { sock.close(); } catch {} };
+}
+
+function closeBoardWS() {
+  boardWSBoardId = null;
+  stopLazyPoll();
+  if (boardWS) {
+    const sock = boardWS;
+    boardWS = null;
+    try { sock.onclose = null; sock.onmessage = null; sock.onerror = null; sock.close(); } catch {}
+  }
+}
+
+function scheduleLazyPoll(boardId) {
+  if (lazyTimer) return;
+  lazyTimer = setTimeout(async () => {
+    lazyTimer = null;
+    if (state.route.name !== "board" || boardWSBoardId !== boardId || boardWS) return;
+    await refreshBoard();
+    lazyDelay = Math.min(lazyDelay * 2, 30000);
+    scheduleLazyPoll(boardId);
+  }, lazyDelay);
+}
+
+function stopLazyPoll() {
+  clearTimeout(lazyTimer);
+  lazyTimer = null;
+  lazyDelay = 5000;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.route.name === "board") refreshBoard(); // catch up after backgrounding
+});
 
 // ---------- name modal ----------
 function showNameModal() {
