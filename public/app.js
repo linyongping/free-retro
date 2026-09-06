@@ -32,6 +32,7 @@ const ICONS = {
   send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-7-4.5 14L11 14l-7-2z"/></svg>',
   clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>',
 };
 
 // ---------- identity & palette ----------
@@ -92,6 +93,10 @@ async function api(path, opts = {}) {
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+    showGate(); // session expired or revoked — re-lock the UI
+    throw Object.assign(new Error("unauthorized"), { status: 401 });
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status, data });
   return data;
@@ -1031,5 +1036,67 @@ function showNameModal() {
   input.select();
 }
 
+// ---------- site passcode gate ----------
+function showGate() {
+  if (document.getElementById("gate")) return;
+  document.title = "Locked · Free Retro";
+  const input = h("input", {
+    type: "password", placeholder: "Passcode", "aria-label": "Site passcode",
+    autocomplete: "current-password",
+    onkeydown: (e) => { if (e.key === "Enter") unlock(); },
+  });
+  const err = h("p", { class: "gate-err hidden" }, "Wrong passcode — try again");
+  const btn = h("button", { class: "btn accent", onclick: unlock }, "Unlock");
+  let busy = false;
+  async function unlock() {
+    if (busy) return;
+    busy = true;
+    btn.disabled = true;
+    err.classList.add("hidden");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ passcode: input.value }),
+      });
+      if (res.ok) {
+        document.getElementById("gate").remove();
+        document.title = "Free Retro — quick retrospective boards";
+        route();
+        return;
+      }
+      err.textContent = "Wrong passcode — try again";
+      err.classList.remove("hidden");
+      input.value = "";
+      input.focus();
+    } catch {
+      err.textContent = "Couldn't reach the server — try again";
+      err.classList.remove("hidden");
+    }
+    btn.disabled = false;
+    busy = false;
+  }
+  document.body.append(
+    h("div", { class: "overlay gate", id: "gate" },
+      h("div", { class: "name-card gate-card" },
+        h("div", { class: "gate-lock", html: ICONS.lock }),
+        h("h3", {}, "This space is locked"),
+        h("p", {}, "Enter the site passcode to view and run retros."),
+        input,
+        err,
+        btn,
+      ),
+    ),
+  );
+  input.focus();
+}
+
 // ---------- boot ----------
-route();
+async function boot() {
+  try {
+    await api("/api/auth/check");
+    route();
+  } catch {
+    showGate(); // api() already rendered the gate on 401
+  }
+}
+boot();

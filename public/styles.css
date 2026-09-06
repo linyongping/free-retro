@@ -886,3 +886,10 @@ input, textarea { font: inherit; color: inherit; }
 .team-card { min-height: 130px; padding-top: 34px; }
 .team-card .b-title { font-family: var(--font-marker); font-weight: 600; font-size: 27px; }
 .team-create { margin-bottom: 46px; }
+
+/* ---------- site passcode gate ---------- */
+.gate { z-index: 80; }
+.gate-card { text-align: center; }
+.gate-lock { display: inline-flex; color: var(--accent); margin-bottom: 4px; }
+.gate-lock svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.gate-err { color: #b3361e !important; font-weight: 600; margin: 10px 0 0 !important; }

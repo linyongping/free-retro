@@ -3,6 +3,40 @@
 
 const ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"; // unambiguous lowercase
 const COLUMNS = new Set(["went_well", "to_improve", "actions"]);
+const AUTH_COOKIE = "retro_auth";
+const AUTH_TTL = 30 * 86400; // 30 days
+
+async function hmacHex(key, msg) {
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", k, enc.encode(msg));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function getCookie(request, name) {
+  for (const part of (request.headers.get("Cookie") || "").split(/;\s*/)) {
+    const eq = part.indexOf("=");
+    if (eq > 0 && part.slice(0, eq) === name) return part.slice(eq + 1);
+  }
+  return null;
+}
+
+// token = "<expiry-ms>.<hmac(passcode, expiry)>"; rotating the passcode voids all sessions
+async function makeToken(passcode) {
+  const exp = String(Date.now() + AUTH_TTL * 1000);
+  return `${exp}.${await hmacHex(passcode, exp)}`;
+}
+
+async function authed(request, env) {
+  const passcode = (env.SITE_PASSCODE || "").trim();
+  if (!passcode) return true; // no passcode configured → open access
+  const token = getCookie(request, AUTH_COOKIE) || "";
+  const dot = token.indexOf(".");
+  if (dot <= 0) return false;
+  const [exp, sig] = [token.slice(0, dot), token.slice(dot + 1)];
+  if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
+  return sig === (await hmacHex(passcode, exp));
+}
 
 function rid(len) {
   const bytes = crypto.getRandomValues(new Uint8Array(len));
@@ -52,6 +86,30 @@ export default {
     let m;
 
     try {
+      // ---- site passcode gate (all /api/* except auth endpoints) ----
+      if (path === "/api/auth/check") {
+        return json({ ok: await authed(request, env) });
+      }
+      if (path === "/api/auth/login" && method === "POST") {
+        const body = await readBody(request);
+        const passcode = (env.SITE_PASSCODE || "").trim();
+        if (!passcode) return json({ ok: true, open: true }); // gate not configured
+        if ((body.passcode || "").toString().trim() !== passcode) {
+          return json({ error: "wrong_passcode" }, 401);
+        }
+        const secure = url.hostname === "localhost" || url.hostname === "127.0.0.1" ? "" : "; Secure";
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "set-cookie": `${AUTH_COOKIE}=${await makeToken(passcode)}; Max-Age=${AUTH_TTL}; Path=/; HttpOnly; SameSite=Lax${secure}`,
+          },
+        });
+      }
+      if (path.startsWith("/api/") && !(await authed(request, env))) {
+        return json({ error: "unauthorized" }, 401);
+      }
+
       // ---- teams ----
       if (path === "/api/teams" && method === "GET") {
         const { results } = await env.DB.prepare(

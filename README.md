@@ -57,13 +57,31 @@ npm run dev               # http://localhost:8787
 npx wrangler login                # once
 npx wrangler d1 create free-retro-db   # once; put the id into wrangler.jsonc
 npm run db:schema:remote          # once
+echo "your-passcode" | npx wrangler secret put SITE_PASSCODE   # site lock
 npm run deploy
 ```
+
+## Site passcode
+
+When the `SITE_PASSCODE` secret is set, the whole site sits behind a shared
+passcode: visitors see a lock screen, and every `/api/*` call requires the
+signed session cookie it issues (30 days; changing the passcode voids all
+sessions). Team links stay as the per-team credential underneath.
+
+```bash
+echo "new-passcode" | npx wrangler secret put SITE_PASSCODE   # change it (logs everyone out)
+npx wrangler secret delete SITE_PASSCODE                      # remove the gate entirely
+```
+
+For local dev, put `SITE_PASSCODE=...` into `.dev.vars` (gitignored); without
+it the app runs open.
 
 ## API
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/api/auth/check` | session probe (`{ok}`) |
+| POST | `/api/auth/login` | exchange passcode for session cookie |
 | GET | `/api/teams` | list teams (with board counts) |
 | POST | `/api/teams` | create team `{name}` |
 | GET/PATCH | `/api/teams/:id` | get / rename team |
@@ -76,9 +94,9 @@ npm run deploy
 | POST | `/api/boards/:id/timer` | start silent-writing timer `{minutes}` |
 | DELETE | `/api/boards/:id/timer` | stop the timer |
 | GET | `/api/boards/:id?voter=` | full board state incl. notes + `voted` flag |
-| POST | `/api/boards/:id/notes` | `{column_key, text, author}` |
-| PATCH | `/api/notes/:id` | edit `{text}` |
-| DELETE | `/api/notes/:id` | delete note + its votes |
+| POST | `/api/boards/:id/notes` | `{column_key, text, author, voter}` |
+| PATCH | `/api/notes/:id` | edit `{text, voter}` (owner only) |
+| DELETE | `/api/notes/:id?voter=` | delete note + its votes (owner only) |
 | POST | `/api/notes/:id/vote` | toggle vote `{voter}` |
 
 Notes: boards are editable by anyone with the link (trusted-team model); the
