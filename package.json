@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:schema:local": "wrangler d1 execute free-retro-db --local --file=./schema.sql",
-    "db:schema:remote": "wrangler d1 execute free-retro-db --remote --file=./schema.sql"
+    "db:schema:remote": "wrangler d1 execute free-retro-db --remote --file=./schema.sql",
+    "test": "node --test"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

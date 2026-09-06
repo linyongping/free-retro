@@ -328,21 +328,19 @@ export default {
           .bind(id, boardId, column_key, text, author, voter, sort_order, now, now)
           .run();
         return json(
-          { note: { id, column_key, text, author, created_at: now, updated_at: now, vote_count: 0, voted: 0, mine: voter ? 1 : 0 } },
+          { note: { id, column_key, text, author, sort_order, created_at: now, updated_at: now, vote_count: 0, voted: 0, mine: voter ? 1 : 0 } },
           201
         );
       }
 
-      // ---- single note: edit / delete (owner-locked; legacy notes stay open) ----
+      // ---- single note: edit / delete (open to everyone; owner_id kept as metadata) ----
       if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)$/))) {
         const noteId = m[1];
-        const note = await env.DB.prepare("SELECT id, owner_id FROM notes WHERE id = ?").bind(noteId).first();
+        const note = await env.DB.prepare("SELECT id FROM notes WHERE id = ?").bind(noteId).first();
         if (!note) return json({ error: "note_not_found" }, 404);
 
         if (method === "PATCH") {
           const body = await readBody(request);
-          const voter = (body.voter || "").toString().slice(0, 64);
-          if (note.owner_id && note.owner_id !== voter) return json({ error: "not_allowed" }, 403);
           const text = (body.text || "").toString().trim().slice(0, 500);
           if (!text) return json({ error: "invalid_text" }, 400);
           await env.DB.prepare("UPDATE notes SET text = ?, updated_at = ? WHERE id = ?")
@@ -352,8 +350,6 @@ export default {
         }
 
         if (method === "DELETE") {
-          const voter = (url.searchParams.get("voter") || "").slice(0, 64);
-          if (note.owner_id && note.owner_id !== voter) return json({ error: "not_allowed" }, 403);
           await env.DB.batch([
             env.DB.prepare("DELETE FROM votes WHERE note_id = ?").bind(noteId),
             env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(noteId),
