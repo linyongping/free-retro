@@ -619,6 +619,7 @@ function buildTimerControl() {
   function closeMenu() {
     menu.classList.add("hidden");
     closeTimerMenu();
+    updateTimerButton(); // bring the button tooltip back
   }
   function onDocClick(e) {
     if (!wrap.isConnected) { closeTimerMenu(); return; } // menu was rebuilt/detached
@@ -644,6 +645,7 @@ function buildTimerControl() {
       closeTimerMenu(); // never two live document listeners
       renderMenu();
       menu.classList.remove("hidden");
+      btn.removeAttribute("data-tip"); // tooltip would sit on top of the menu
       // adding synchronously is safe: onDocClick ignores clicks inside the wrap,
       // so the very click that opens the menu won't immediately close it
       timerMenuCleanup = () => document.removeEventListener("click", onDocClick, true);
@@ -672,6 +674,8 @@ function buildNamesToggle() {
 function updateTimerButton() {
   const btn = $app.querySelector(".timer-wrap > button");
   if (!btn) return;
+  const menuOpen = !btn.parentElement?.querySelector(".timer-menu")?.classList.contains("hidden");
+  if (menuOpen) { btn.removeAttribute("data-tip"); return; } // tooltip would cover the menu
   if (state.timerEndsAt) {
     btn.className = "timer-chip";
     btn.setAttribute("data-tip", "Silent writing is on — click to stop or restart");
