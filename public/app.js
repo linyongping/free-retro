@@ -1125,13 +1125,12 @@ function noteCard(note) {
   // vote
   const voteBtn = h("button", {
     class: "vote" + (note.voted ? " voted" : ""),
-    "data-tip": note.voted ? "Remove your vote" : "Vote for this note",
     "aria-label": note.voted ? "Remove your vote" : "Vote for this note",
     onclick: () => toggleVote(note),
   }, h("span", { html: ICONS.heart }), note.vote_count > 0 ? String(note.vote_count) : "");
 
   // edit + delete are open to everyone (trusted-team model, like dragging)
-  const editBtn = h("button", { class: "tool-btn edit", "data-tip": "Edit this note", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
+  const editBtn = h("button", { class: "tool-btn edit", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
 
   // drag grip: anyone can move any note (drag is open by design)
@@ -1144,7 +1143,7 @@ function noteCard(note) {
   card.prepend(grip);
 
   // delete (two-step confirm)
-  const delBtn = h("button", { class: "tool-btn del", "data-tip": "Delete note", "aria-label": "Delete note", onclick: () => confirmDelete(note, delBtn) },
+  const delBtn = h("button", { class: "tool-btn del", "aria-label": "Delete note", onclick: () => confirmDelete(note, delBtn) },
     h("span", { html: ICONS.trash }));
   let confirmTimer;
   function confirmDelete(note, btn) {
