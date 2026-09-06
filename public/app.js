@@ -274,25 +274,35 @@ async function renderTeam(seq = routeSeq, teamId) {
   function startTeamEdit() {
     const titleEl = root.querySelector(".team-title");
     if (!titleEl || root.querySelector(".team-title-input")) return;
+    let closing = false;
     const nameInput = h("input", {
       class: "team-title-input board-title-input", maxlength: "60", value: team.name,
       onkeydown: (e) => {
-        if (e.key === "Enter" && !e.isComposing) nameInput.blur();
-        if (e.key === "Escape") { nameInput.value = team.name; nameInput.blur(); }
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); commit(nameInput.value); }
+        if (e.key === "Escape") { e.preventDefault(); commit(null); }
       },
-      onblur: async () => {
-        const name = nameInput.value.trim().slice(0, 60);
-        if (name && name !== team.name) {
-          try {
-            const res = await api(`/api/teams/${teamId}`, { method: "PATCH", body: { name } });
-            team.name = res.team.name;
-            document.title = `${team.name} · Free Retro`;
-          } catch { toast("Rename failed"); }
-        }
-        const cur = root.querySelector(".team-title-input");
-        if (cur) cur.replaceWith(h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, team.name));
-      },
+      onblur: () => commit(nameInput.value),
     });
+    // single explicit save path: Enter, Escape and blur all land here
+    function commit(rawValue) {
+      if (closing) return;
+      closing = true;
+      const name = (rawValue || "").trim().slice(0, 60) || team.name;
+      const cur = root.querySelector(".team-title-input");
+      if (cur) cur.replaceWith(h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, name));
+      if (name === team.name) return;
+      const prev = team.name;
+      team.name = name; // optimistic
+      document.title = `${name} · Free Retro`;
+      api(`/api/teams/${teamId}`, { method: "PATCH", body: { name } })
+        .catch(() => {
+          team.name = prev;
+          document.title = `${prev} · Free Retro`;
+          const el = root.querySelector(".team-title");
+          if (el) el.textContent = prev;
+          toast("Rename failed");
+        });
+    }
     titleEl.replaceWith(nameInput);
     nameInput.focus();
     nameInput.select();
@@ -712,25 +722,34 @@ function applyTimerState() {
 }
 
 async function startTimer(minutes) {
+  if (state.timerEndsAt) return;
+  // optimistic: start the countdown locally, reconcile with the server after
+  state.timerEndsAt = Date.now() + state.serverOffset + minutes * 60000;
+  applyTimerState();
+  toast(`Silent writing started — ${minutes} minutes on the clock`);
   try {
     const res = await api(`/api/boards/${state.board.id}/timer`, { method: "POST", body: { minutes } });
     state.serverOffset = res.now - Date.now();
     state.timerEndsAt = res.board.timer_ends_at;
     applyTimerState();
-    toast(`Silent writing started — ${minutes} minutes on the clock`);
   } catch {
+    state.timerEndsAt = null;
+    applyTimerState();
     toast("Couldn't start the timer — try again");
   }
 }
 
 async function stopTimer() {
+  const prev = state.timerEndsAt;
+  state.timerEndsAt = null;
+  applyTimerState();
   try {
     const res = await api(`/api/boards/${state.board.id}/timer`, { method: "DELETE" });
     state.serverOffset = res.now - Date.now();
-    state.timerEndsAt = null;
-    applyTimerState();
     toast("Timer stopped — notes are visible");
   } catch {
+    state.timerEndsAt = prev;
+    applyTimerState();
     toast("Couldn't stop the timer");
   }
 }
@@ -833,25 +852,37 @@ function startTitleEdit() {
   if (state.titleEditing) return;
   state.titleEditing = true;
   const titleEl = $app.querySelector(".board-title");
+  if (!titleEl) return;
+  let closing = false;
   const input = h("input", {
     class: "board-title-input", maxlength: "120", value: state.board.title,
     onkeydown: (e) => {
-      if (e.key === "Enter" && !e.isComposing) input.blur();
-      if (e.key === "Escape") { input.value = state.board.title; input.blur(); }
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); commit(input.value); }
+      if (e.key === "Escape") { e.preventDefault(); commit(null); }
     },
-    onblur: async () => {
-      state.titleEditing = false;
-      const title = input.value.trim().slice(0, 120);
-      if (!title || title === state.board.title) { titleEl.replaceWith(h("h1", { class: "board-title", "data-tip": "Click to rename the board", onclick: startTitleEdit }, state.board.title)); return; }
-      try {
-        await api(`/api/boards/${state.board.id}`, { method: "PATCH", body: { title } });
-        state.board.title = title;
-        document.title = `${title} · Free Retro`;
-      } catch { toast("Rename failed"); }
-      const fresh = $app.querySelector(".board-title-input");
-      if (fresh) fresh.replaceWith(h("h1", { class: "board-title", "data-tip": "Click to rename the board", onclick: startTitleEdit }, state.board.title));
-    },
+    onblur: () => commit(input.value),
   });
+  // single explicit save path: Enter, Escape and blur all land here
+  function commit(rawValue) {
+    if (closing) return;
+    closing = true;
+    state.titleEditing = false;
+    const title = (rawValue || "").trim().slice(0, 120) || state.board.title;
+    const fresh = $app.querySelector(".board-title-input");
+    if (fresh) fresh.replaceWith(h("h1", { class: "board-title", "data-tip": "Click to rename the board", onclick: startTitleEdit }, title));
+    if (title === state.board.title) return;
+    const prev = state.board.title;
+    state.board.title = title; // optimistic
+    document.title = `${title} · Free Retro`;
+    api(`/api/boards/${state.board.id}`, { method: "PATCH", body: { title } })
+      .catch(() => {
+        state.board.title = prev;
+        document.title = `${prev} · Free Retro`;
+        const el = $app.querySelector(".board-title");
+        if (el) el.textContent = prev;
+        toast("Rename failed");
+      });
+  }
   titleEl.replaceWith(input);
   input.focus();
   input.select();
@@ -889,22 +920,41 @@ function buildColumn(col) {
   async function submit() {
     const text = ta.value.trim();
     if (!text) return;
-    addBtn.disabled = true;
+    // optimistic: show the note right away, reconcile with the server after
+    const tempId = `tmp${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const siblings = state.notes.filter((n) => n.column_key === col.key);
+    const temp = {
+      id: tempId,
+      column_key: col.key,
+      text,
+      author: store.name,
+      sort_order: (siblings.length ? Math.max(...siblings.map((n) => n.sort_order || 0)) : 0) + 1000,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      vote_count: 0,
+      voted: 0,
+      mine: 1,
+      _entering: true,
+    };
+    state.notes.push(temp);
+    renderNotes();
+    ta.value = "";
+    ta.focus();
+    if (state.timerEndsAt) toast("Stashed — it will appear when the timer ends");
     try {
       const { note } = await api(`/api/boards/${state.board.id}/notes`, {
         method: "POST",
         body: { column_key: col.key, text, author: store.name, voter: store.voter },
       });
-      note._entering = true;
-      state.notes.push(note);
+      const idx = state.notes.findIndex((n) => n.id === tempId);
+      if (idx >= 0) state.notes[idx] = note;
+      else state.notes.push(note); // a sync replaced the list while we posted
       renderNotes();
-      ta.value = "";
-      ta.focus();
-      if (state.timerEndsAt) toast("Stashed — it will appear when the timer ends");
     } catch {
+      state.notes = state.notes.filter((n) => n.id !== tempId);
+      renderNotes();
       toast("Couldn't add the note — try again");
     }
-    addBtn.disabled = false;
   }
 
   return h("section", { class: `column col-${col.key}` },
@@ -1131,24 +1181,25 @@ function startEdit(note, card, textEl) {
     if (closing) return;
     closing = true;
     const newText = ta.value.trim().slice(0, 500);
+    // remove the editor first — renderNotes skips rebuilds while it's in the DOM
+    wrap.remove();
     if (save && newText && newText !== note.text) {
-      note.text = newText;
+      note.text = newText; // optimistic: show the new text now
+      renderNotes();
       try { await api(`/api/notes/${note.id}`, { method: "PATCH", body: { text: newText } }); }
       catch { toast("Edit failed — will resync"); }
     }
-    // remove the editor first — renderNotes skips rebuilds while it's in the DOM
-    wrap.remove();
     renderNotes();
   };
   ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ta.blur(); }
-    if (e.key === "Escape") { ta.value = note.text; ta.blur(); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); finish(true); }
+    if (e.key === "Escape") { ta.value = note.text; finish(false); }
   });
   ta.addEventListener("blur", () => {
     // a transient blur (mobile keyboard dismissing, focus race) must not close
     // the editor — only finish for real if focus doesn't come back right away
     setTimeout(() => {
-      if (document.activeElement === ta) return;
+      if (document.activeElement === ta || closing) return;
       finish(true);
     }, 200);
   });
