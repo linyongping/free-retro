@@ -560,7 +560,8 @@ function fmtRemain() {
 
 function buildTimerControl() {
   const menu = h("div", { class: "timer-menu hidden" });
-  const btn = h("button", { class: "btn ghost", title: "Silent-writing timer" });
+  const btn = h("button", { class: "btn ghost", title: "Silent-writing timer" },
+    h("span", { html: ICONS.clock }), "Timer");
   const wrap = h("div", { class: "timer-wrap" }, btn, menu);
 
   function closeMenu() {
@@ -745,6 +746,7 @@ function renderBoardShell() {
 
   $app.replaceChildren(h("div", { class: "board-page" }, topbar, columnsWrap));
   renderNotes();
+  updateTimerButton(); // topbar may be rebuilt outside loadBoard (e.g. after the name modal)
 }
 
 function startTitleEdit() {
