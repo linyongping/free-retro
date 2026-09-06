@@ -965,3 +965,51 @@ button svg,
 a.back svg,
 .gate-lock svg,
 .timer-banner .t-icon svg { display: block; }
+
+/* ---------- tooltips ---------- */
+[data-tip] { position: relative; }
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #fffdf4;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 6px 11px;
+  border-radius: 7px;
+  white-space: nowrap;
+  z-index: 75;
+  box-shadow: 0 8px 20px -8px rgba(40, 30, 8, 0.55);
+  pointer-events: none;
+  animation: tip-in 0.12s ease;
+}
+[data-tip]:hover::before,
+[data-tip]:focus-visible::before {
+  content: "";
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 9px;
+  height: 9px;
+  background: var(--ink);
+  z-index: 76;
+  pointer-events: none;
+}
+/* right-edge buttons: align the bubble to the button's right edge */
+[data-tip-align="right"]:hover::after,
+[data-tip-align="right"]:focus-visible::after { left: auto; right: 0; transform: none; }
+[data-tip-align="right"]:hover::before,
+[data-tip-align="right"]:focus-visible::before { left: auto; right: 12px; transform: rotate(45deg); }
+@keyframes tip-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-3px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+[data-tip-align="right"]:hover::after,
+[data-tip-align="right"]:focus-visible::after { animation: none; }

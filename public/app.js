@@ -289,7 +289,7 @@ async function renderTeam(seq = routeSeq, teamId) {
           } catch { toast("Rename failed"); }
         }
         const cur = root.querySelector(".team-title-input");
-        if (cur) cur.replaceWith(h("h1", { class: "board-title team-title", title: "Click to rename", onclick: startTeamEdit }, team.name));
+        if (cur) cur.replaceWith(h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, team.name));
       },
     });
     titleEl.replaceWith(nameInput);
@@ -299,15 +299,15 @@ async function renderTeam(seq = routeSeq, teamId) {
 
   const head = h("nav", { class: "topbar" },
     h("a", { class: "back", href: "#/" }, h("span", { html: ICONS.back }), "Teams"),
-    h("h1", { class: "board-title team-title", title: "Click to rename", onclick: startTeamEdit }, team.name),
+    h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, team.name),
     h("div", { class: "spacer" }),
     h("button", {
-      class: "btn ghost", onclick: async () => {
+      class: "btn ghost", "data-tip": "Copy the team link to share", "data-tip-align": "right", onclick: async () => {
         try { await navigator.clipboard.writeText(location.href); toast("Team link copied — share it with your teammates"); }
         catch { toast("Copy failed — grab it from the address bar"); }
       },
     }, h("span", { html: ICONS.link }), "Team link"),
-    h("a", { class: "btn ghost", href: `#/t/${teamId}/admin` }, "Manage"),
+    h("a", { class: "btn ghost", href: `#/t/${teamId}/admin`, "data-tip": "Manage boards, trash, and team deletion", "data-tip-align": "right" }, "Manage"),
   );
 
   // create-board card (scoped to this team); pre-filled with the dated default
@@ -441,7 +441,7 @@ async function renderTeamAdmin(seq = routeSeq, teamId) {
   // danger zone: delete the whole team
   const totalBoards = active.length + trash.length;
   const boardsWord = `${totalBoards} board${totalBoards === 1 ? "" : "s"}`;
-  const delTeamBtn = h("button", { class: "btn ghost admin-del", onclick: confirmTeamDelete }, "Delete team");
+  const delTeamBtn = h("button", { class: "btn ghost admin-del", "data-tip": "Permanently delete this team and all its boards", "data-tip-align": "right", onclick: confirmTeamDelete }, "Delete team");
   let confirmTimer;
   function confirmTeamDelete() {
     if (delTeamBtn.dataset.confirm) {
@@ -612,7 +612,7 @@ function fmtRemain() {
 
 function buildTimerControl() {
   const menu = h("div", { class: "timer-menu hidden" });
-  const btn = h("button", { class: "btn ghost", title: "Silent-writing timer" },
+  const btn = h("button", { class: "btn ghost", "data-tip": "Silent-writing timer — hide notes while the team writes" },
     h("span", { html: ICONS.clock }), "Timer");
   const wrap = h("div", { class: "timer-wrap" }, btn, menu);
 
@@ -659,7 +659,7 @@ function buildTimerControl() {
 function buildNamesToggle() {
   const btn = h("button", {
     class: "btn ghost names-toggle" + (store.showNames ? " on" : ""),
-    title: "Show author names on notes",
+    "data-tip": "Show or hide author names on notes", "data-tip-align": "right",
     onclick: () => {
       store.showNames = !store.showNames;
       btn.classList.toggle("on", store.showNames);
@@ -674,9 +674,11 @@ function updateTimerButton() {
   if (!btn) return;
   if (state.timerEndsAt) {
     btn.className = "timer-chip";
+    btn.setAttribute("data-tip", "Silent writing is on — click to stop or restart");
     btn.replaceChildren(h("span", { html: ICONS.clock }), h("span", { class: "t-remain" }, fmtRemain()));
   } else {
     btn.className = "btn ghost";
+    btn.setAttribute("data-tip", "Silent-writing timer — hide notes while the team writes");
     btn.replaceChildren(h("span", { html: ICONS.clock }), "Timer");
   }
 }
@@ -787,18 +789,18 @@ function renderBoardShell() {
 
   // title (click to edit)
   const titleEl = h("h1", {
-    class: "board-title", title: "Click to rename",
+    class: "board-title", "data-tip": "Click to rename the board",
     onclick: startTitleEdit,
   }, b.title);
 
   const shareBtn = h("button", {
-    class: "btn ghost", onclick: async () => {
+    class: "btn ghost", "data-tip": "Copy the board link to share with your team", "data-tip-align": "right", onclick: async () => {
       try { await navigator.clipboard.writeText(location.href); toast("Link copied — share it with your team"); }
       catch { toast("Copy failed — grab it from the address bar"); }
     },
   }, h("span", { html: ICONS.link }), "Share");
 
-  const meBtn = h("button", { class: "me-chip", title: "Change your name", onclick: () => showNameModal() },
+  const meBtn = h("button", { class: "me-chip", "data-tip": "Change your name", "data-tip-align": "right", onclick: () => showNameModal() },
     h("span", { class: "avatar", style: `--av: hsl(${avatarHue(store.name)}, 70%, 72%)` }, initialsOf(store.name)),
     store.name || "Set your name",
   );
@@ -834,14 +836,14 @@ function startTitleEdit() {
     onblur: async () => {
       state.titleEditing = false;
       const title = input.value.trim().slice(0, 120);
-      if (!title || title === state.board.title) { titleEl.replaceWith(h("h1", { class: "board-title", title: "Click to rename", onclick: startTitleEdit }, state.board.title)); return; }
+      if (!title || title === state.board.title) { titleEl.replaceWith(h("h1", { class: "board-title", "data-tip": "Click to rename the board", onclick: startTitleEdit }, state.board.title)); return; }
       try {
         await api(`/api/boards/${state.board.id}`, { method: "PATCH", body: { title } });
         state.board.title = title;
         document.title = `${title} · Free Retro`;
       } catch { toast("Rename failed"); }
       const fresh = $app.querySelector(".board-title-input");
-      if (fresh) fresh.replaceWith(h("h1", { class: "board-title", title: "Click to rename", onclick: startTitleEdit }, state.board.title));
+      if (fresh) fresh.replaceWith(h("h1", { class: "board-title", "data-tip": "Click to rename the board", onclick: startTitleEdit }, state.board.title));
     },
   });
   titleEl.replaceWith(input);
@@ -1067,17 +1069,18 @@ function noteCard(note) {
   // vote
   const voteBtn = h("button", {
     class: "vote" + (note.voted ? " voted" : ""),
-    title: note.voted ? "Remove your vote" : "Vote for this note",
+    "data-tip": note.voted ? "Remove your vote" : "Vote for this note",
+    "aria-label": note.voted ? "Remove your vote" : "Vote for this note",
     onclick: () => toggleVote(note),
   }, h("span", { html: ICONS.heart }), note.vote_count > 0 ? String(note.vote_count) : "");
 
   // edit + delete are owner-only (server enforces 403; legacy notes are open)
   const canModify = !!note.mine;
-  const editBtn = h("button", { class: "tool-btn edit", title: "Edit note", onclick: () => startEdit(note, card, textEl) },
+  const editBtn = h("button", { class: "tool-btn edit", "data-tip": "Edit this note", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
 
   // drag grip: anyone can move any note (drag is open by design)
-  const grip = h("button", { class: "drag-grip", title: "Drag to move", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
+  const grip = h("button", { class: "drag-grip", "data-tip": "Drag to move this note", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
   grip.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     try { grip.setPointerCapture(e.pointerId); } catch {}
@@ -1086,7 +1089,7 @@ function noteCard(note) {
   card.prepend(grip);
 
   // delete (two-step confirm)
-  const delBtn = h("button", { class: "tool-btn del", title: "Delete note", onclick: () => confirmDelete(note, delBtn) },
+  const delBtn = h("button", { class: "tool-btn del", "data-tip": "Delete note", "aria-label": "Delete note", onclick: () => confirmDelete(note, delBtn) },
     h("span", { html: ICONS.trash }));
   let confirmTimer;
   function confirmDelete(note, btn) {
