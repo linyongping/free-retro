@@ -1347,7 +1347,10 @@ async function refreshBoard() {
     state.serverOffset = (data.now || Date.now()) - Date.now();
     const prevTimer = state.timerEndsAt;
     state.timerEndsAt = data.board.timer_ends_at || null;
-    if ((prevTimer || null) !== (state.timerEndsAt || null)) applyTimerState();
+    // always call applyTimerState on every refresh — it is idempotent (just
+    // toggles a CSS class) and ensures the blur state is correct even if the
+    // initial call was missed due to timing.
+    applyTimerState();
     if (data.board.title !== state.board.title && !state.titleEditing) {
       state.board = data.board;
       const titleEl = $app.querySelector(".board-title");
@@ -1454,7 +1457,9 @@ function showNameModal() {
   function save() {
     store.name = input.value;
     overlay.remove();
-    renderBoardShell();
+    renderBoardShell();   // rebuilds DOM — columns lose the blur class
+    applyTimerState();    // re-apply blur based on current timer state
+    renderNotes();
     if (!store.name) toast("You can stay anonymous — that's fine too");
   }
   const overlay = h("div", { class: "overlay name-overlay", onclick: (e) => { if (e.target === overlay && store.name) overlay.remove(); } },
