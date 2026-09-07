@@ -438,6 +438,39 @@ export default {
         return json({ ok: true, column_key, sort_order });
       }
 
+      // ---- merge notes ----
+      if ((m = path.match(/^\/api\/boards\/([a-z0-9]+)\/merge$/)) && method === "POST") {
+        const boardId = m[1];
+        const body = await readBody(request);
+        const ids = Array.isArray(body.ids) ? body.ids.filter((x) => typeof x === "string" && x.length < 40) : [];
+        if (ids.length < 2) return json({ error: "need_at_least_two" }, 400);
+        const ph = ids.map(() => "?").join(",");
+        const { results } = await env.DB.prepare(
+          `SELECT id, board_id, column_key FROM notes WHERE id IN (${ph}) AND board_id = ?`
+        )
+          .bind(...ids, boardId)
+          .all();
+        if (results.length !== ids.length) return json({ error: "some_notes_not_found" }, 400);
+
+        const survivorId = ids[0];
+        const victimIds = ids.slice(1);
+        const vph = victimIds.map(() => "?").join(",");
+        const victimVotes = await env.DB.prepare(
+          `SELECT voter FROM votes WHERE note_id IN (${vph})`
+        )
+          .bind(...victimIds)
+          .all();
+        await env.DB.batch([
+          ...victimVotes.results.map((v) =>
+            env.DB.prepare("INSERT OR IGNORE INTO votes (note_id, voter, created_at) VALUES (?, ?, ?)").bind(survivorId, v.voter, Date.now())
+          ),
+          ...victimIds.map((v) => env.DB.prepare("DELETE FROM votes WHERE note_id = ?").bind(v)),
+          env.DB.prepare(`DELETE FROM notes WHERE id IN (${vph})`).bind(...victimIds),
+        ]);
+        ctx.waitUntil(notifyBoardChange(env, boardId));
+        return json({ ok: true, survivor_id: survivorId, deleted: victimIds.length });
+      }
+
       // ---- toggle vote ----
       if ((m = path.match(/^\/api\/notes\/([a-z0-9]+)\/vote$/)) && method === "POST") {
         const noteId = m[1];

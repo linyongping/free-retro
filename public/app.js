@@ -35,6 +35,7 @@ const ICONS = {
   lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>',
   grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>',
   user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>',
 };
 
 // ---------- identity & palette ----------
@@ -835,6 +836,7 @@ function renderBoardShell() {
     titleEl,
     h("div", { class: "spacer" }),
     buildTimerControl(),
+    h("button", { class: "btn ghost", onclick: enterMergeMode, "data-tip": "Merge selected notes into one", "data-tip-align": "right" }, h("span", { html: ICONS.check }), "Merge"),
     shareBtn,
     buildNamesToggle(),
     meBtn,
@@ -992,6 +994,66 @@ function renderNotes() {
   }
 }
 
+// ---------- merge mode ----------
+let mergeIds = new Set();
+
+function enterMergeMode() {
+  mergeIds.clear();
+  const el = $app.querySelector(".board-page");
+  el.classList.add("merge-mode");
+  renderMergeToolbar();
+}
+
+function exitMergeMode() {
+  mergeIds.clear();
+  const el = $app.querySelector(".board-page");
+  if (el) el.classList.remove("merge-mode");
+  const bar = $app.querySelector(".merge-toolbar");
+  if (bar) bar.remove();
+  $app.querySelectorAll(".note.selected").forEach((n) => n.classList.remove("selected"));
+}
+
+function toggleMergeId(id) {
+  if (mergeIds.has(id)) mergeIds.delete(id); else mergeIds.add(id);
+  const card = $app.querySelector(`.note[data-id="${id}"]`);
+  card?.classList.toggle("selected");
+  renderMergeToolbar();
+}
+
+function renderMergeToolbar() {
+  let bar = $app.querySelector(".merge-toolbar");
+  if (!bar) {
+    bar = h("div", { class: "merge-toolbar" });
+    $app.querySelector(".board-page")?.prepend(bar);
+  }
+  const n = mergeIds.size;
+  bar.replaceChildren(
+    h("span", { class: "merge-status" }, n ? `${n} selected` : "Tap notes to merge"),
+    n >= 2
+      ? h("button", { class: "btn accent merge-btn", onclick: confirmMerge }, "Merge")
+      : null,
+    h("button", { class: "btn ghost merge-btn", onclick: exitMergeMode }, n > 0 ? "Cancel" : "Exit"),
+  );
+}
+
+async function confirmMerge() {
+  if (mergeIds.size < 2) return;
+  const ids = [...mergeIds];
+  try {
+    const res = await api(`/api/boards/${state.board.id}/merge`, { method: "POST", body: { ids } });
+    const survivors = state.notes.filter((n) => ids.includes(n.id));
+    survivors[0].text = survivors.map((s) => s.text).join("\n");
+    survivors[0].vote_count = survivors.reduce((a, b) => a + (b.vote_count || 0), 0);
+    state.notes = state.notes.filter((n) => !ids.includes(n.id) || n.id === res.data.survivor_id);
+    exitMergeMode();
+    renderNotes();
+    toast(`Merged ${res.data.deleted + 1} notes`);
+  } catch {
+    toast("Merge failed — try again");
+    exitMergeMode();
+  }
+}
+
 // ---------- drag to move notes (vertical within a column, or across columns) ----------
 let dropIndicator = null;
 
@@ -1133,6 +1195,8 @@ function noteCard(note) {
   const editBtn = h("button", { class: "tool-btn edit", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
 
+  const mergeCheck = h("button", { class: "merge-check", onclick: (e) => { e.stopPropagation(); toggleMergeId(note.id); } }, h("span", { html: ICONS.check }));
+
   // drag grip: anyone can move any note (drag is open by design)
   const grip = h("button", { class: "drag-grip", "data-tip": "Drag to move this note", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
   grip.addEventListener("pointerdown", (e) => {
@@ -1164,7 +1228,7 @@ function noteCard(note) {
     textEl,
     h("div", { class: "note-foot" },
       store.showNames ? author : null,
-      h("span", { class: "note-tools" }, voteBtn, editBtn, delBtn)),
+      h("span", { class: "note-tools" }, voteBtn, mergeCheck, editBtn, delBtn)),
   );
   delete note._entering;
   return card;

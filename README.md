@@ -5,6 +5,7 @@ A tiny, free retrospective board. Create a team, share the link, drop sticky not
 **Live:** https://free-retro.haigr.workers.dev
 
 - Classic 3-column retro: *What went well / What could improve / Action items*
+- Merge: tap two or more notes and click **Merge**; the first note's text stays (sorted by creation) and the rest are removed; votes merge, too
 - Multiplayer sync in real time: every open board connects to a per-board
   Durable Object room over WebSocket (hibernation API, so idle connections
   are free); any change pings the room and clients refetch. If the socket
@@ -108,6 +109,7 @@ it the app runs open.
 | DELETE | `/api/boards/:id?permanent=1` | purge board + notes + votes |
 | POST | `/api/boards/:id/restore` | restore from trash |
 | POST | `/api/notes/:id/move` | move `{column_key, before_id}` (open to everyone) |
+| POST | `/api/boards/:id/merge` | merge notes `{ids: [...]}` (voted notes transfer votes to the survivor) |
 | POST | `/api/boards/:id/timer` | start silent-writing timer `{minutes}` |
 | DELETE | `/api/boards/:id/timer` | stop the timer |
 | GET | `/api/boards/:id?voter=` | full board state incl. notes + `voted` flag |
