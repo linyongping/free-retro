@@ -460,7 +460,8 @@ export default {
         )
           .bind(...victimIds)
           .all();
-        const mergedText = results.map((r) => r.text).join(" — ");
+        const ordered = ids.map((id) => results.find((r) => r.id === id));
+        const mergedText = ordered.map((r) => r.text).join("\n");
         await env.DB.batch([
           env.DB.prepare("UPDATE notes SET text = ?, updated_at = ? WHERE id = ?").bind(mergedText, Date.now(), survivorId),
           ...victimVotes.results.map((v) =>

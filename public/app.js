@@ -1058,7 +1058,30 @@ async function confirmMerge() {
 
 // ---------- drag to move notes (vertical within a column, or across columns) ----------
 let dropIndicator = null;
+let mergeHighlightCard = null;
 
+function paintIndicator(target) {
+  clearIndicator();
+  if (!target || !target.columnEl) return;
+  if (target.type === "merge" && target.mergeWithEl) {
+    mergeHighlightCard = target.mergeWithEl;
+    mergeHighlightCard.classList.add("merge-target");
+    return;
+  }
+  dropIndicator = h("div", { class: "drop-indicator" });
+  const notesWrap = target.columnEl.querySelector(".notes");
+  if (target.beforeEl) notesWrap.insertBefore(dropIndicator, target.beforeEl);
+  else notesWrap.append(dropIndicator);
+}
+
+function clearIndicator() {
+  dropIndicator?.remove();
+  dropIndicator = null;
+  mergeHighlightCard?.classList.remove("merge-target");
+  mergeHighlightCard = null;
+}
+
+// ---------- drag to move notes (vertical within a column, or across columns) ----------
 function startDrag(e, note, card) {
   const rect = card.getBoundingClientRect();
   const ghost = card.cloneNode(true);
@@ -1082,29 +1105,23 @@ function startDrag(e, note, card) {
     card.classList.remove("drag-source");
     clearIndicator();
     dragInProgress = false;
-    if (apply && target) applyMove(note, target);
-    else renderNotes();
+    if (!apply || !target) { renderNotes(); return; }
+    if (target.type === "merge") {
+      const targetNote = state.notes.find((n) => n.id === target.mergeWithId);
+      if (targetNote) showDragMergeConfirm(note, targetNote);
+    } else {
+      applyMove(note, target);
+    }
   };
   const onMove = (ev) => move(ev);
-  const onUp = () => {
-    card.removeEventListener("pointermove", onMove);
-    card.removeEventListener("pointerup", onUp);
-    card.removeEventListener("pointercancel", onCancel);
-    finish(true);
-  };
-  const onCancel = () => {
-    card.removeEventListener("pointermove", onMove);
-    card.removeEventListener("pointerup", onUp);
-    card.removeEventListener("pointercancel", onCancel);
-    finish(false);
-  };
+  const onUp = () => { card.removeEventListener("pointermove", onMove); card.removeEventListener("pointerup", onUp); card.removeEventListener("pointercancel", onCancel); finish(true); };
+  const onCancel = () => { card.removeEventListener("pointermove", onMove); card.removeEventListener("pointerup", onUp); card.removeEventListener("pointercancel", onCancel); finish(false); };
   card.addEventListener("pointermove", onMove);
   card.addEventListener("pointerup", onUp);
   card.addEventListener("pointercancel", onCancel);
   move(e);
 }
 
-// where would a note dropped at (clientX, clientY) land?
 function findDropTarget(clientX, clientY, draggedCard) {
   const columns = [...$app.querySelectorAll(".column")];
   let column = null;
@@ -1119,26 +1136,41 @@ function findDropTarget(clientX, clientY, draggedCard) {
   if (!columnKey) return null;
 
   const cards = [...column.querySelectorAll(".note")].filter((c) => !c.classList.contains("drag-source"));
-  let beforeEl = null;
   for (const c of cards) {
     const r = c.getBoundingClientRect();
-    if (clientY < r.top + r.height / 2) { beforeEl = c; break; }
+    if (clientY >= r.top + r.height * 0.25 && clientY <= r.top + r.height * 0.75) {
+      return { type: "merge", columnKey, mergeWithId: c.dataset.id, mergeWithEl: c, columnEl: column };
+    }
+    if (clientY < r.top + r.height / 2) {
+      return { type: "before", columnKey, beforeId: c.dataset.id, beforeEl: c, columnEl: column };
+    }
   }
-  return { columnKey, beforeId: beforeEl?.dataset.id || null, columnEl: column, beforeEl };
+  return { type: "append", columnKey, columnEl: column };
 }
 
-function paintIndicator(target) {
-  clearIndicator();
-  if (!target || !target.columnEl) return;
-  dropIndicator = h("div", { class: "drop-indicator" });
-  const notesWrap = target.columnEl.querySelector(".notes");
-  if (target.beforeEl) notesWrap.insertBefore(dropIndicator, target.beforeEl);
-  else notesWrap.append(dropIndicator);
-}
-
-function clearIndicator() {
-  dropIndicator?.remove();
-  dropIndicator = null;
+function showDragMergeConfirm(droppedNote, targetNote) {
+  const card = h("div", { class: "merge-overlay", id: "merge-confirm" },
+    h("div", { class: "merge-card" },
+      h("p", {}, `Merge “${droppedNote.text.slice(0, 45)}…” into “${targetNote.text.slice(0, 45)}…”?`),
+      h("p", { style: "margin:8px 0 18px;color:var(--ink-soft);font-size:13px" }, "Both notes will appear in the surviving card, separated by a line break."),
+      h("div", { style: "display:flex;gap:10px;justify-content:flex-end" },
+        h("button", { class: "btn ghost", onclick: () => document.getElementById("merge-confirm")?.remove() }, "Cancel"),
+        h("button", { class: "btn accent", onclick: doMerge }, "Merge"),
+      ),
+    ),
+  );
+  document.body.append(card);
+  async function doMerge() {
+    card.remove();
+    try {
+      const res = await api(`/api/boards/${state.board.id}/merge`, { method: "POST", body: { ids: [targetNote.id, droppedNote.id] } });
+      const survivor = state.notes.find((n) => n.id === res.data.survivor_id);
+      if (survivor) survivor.text = res.data.survivor_text;
+      state.notes = state.notes.filter((n) => n.id === res.data.survivor_id);
+      renderNotes();
+      toast("Merged 2 notes");
+    } catch { toast("Merge failed"); }
+  }
 }
 
 async function applyMove(note, target) {

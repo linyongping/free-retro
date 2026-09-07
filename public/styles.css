@@ -1037,3 +1037,25 @@ a.back svg,
 .merge-mode .merge-check { display: inline-flex; }
 .merge-mode .note .selected .merge-check,
 .note.selected .merge-check { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+/* merge overlay */
+.merge-overlay {
+  position: fixed; inset: 0; background: rgba(63,56,38,0.25);
+  display: flex; align-items: center; justify-content: center; z-index: 80;
+}
+.merge-card {
+  background: var(--card); border-radius: 10px; padding: 22px 24px;
+  box-shadow: 0 18px 44px -12px rgba(40,30,8,.55); max-width: 420px; width: 92%;
+}
+.merge-card p { margin: 0 0 6px; }
+/* drop-target highlight when hovering over a card to merge into */
+.note.merge-target {
+  outline: 3px dashed var(--accent); outline-offset: 3px;
+  transform: rotate(0deg) scale(1.03);
+}
+.note.merge-target .note-text::after {
+  content: "Merge into this"; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(201,85,61,.15); border-radius: 3px;
+  font-family: var(--font-hand); font-size: 17px; font-weight: 600; color: var(--accent);
+}
