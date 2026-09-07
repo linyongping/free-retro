@@ -446,7 +446,7 @@ export default {
         if (ids.length < 2) return json({ error: "need_at_least_two" }, 400);
         const ph = ids.map(() => "?").join(",");
         const { results } = await env.DB.prepare(
-          `SELECT id, board_id, column_key FROM notes WHERE id IN (${ph}) AND board_id = ?`
+          `SELECT id, board_id, column_key, text FROM notes WHERE id IN (${ph}) AND board_id = ?`
         )
           .bind(...ids, boardId)
           .all();
@@ -460,7 +460,9 @@ export default {
         )
           .bind(...victimIds)
           .all();
+        const mergedText = results.map((r) => r.text).join(" — ");
         await env.DB.batch([
+          env.DB.prepare("UPDATE notes SET text = ?, updated_at = ? WHERE id = ?").bind(mergedText, Date.now(), survivorId),
           ...victimVotes.results.map((v) =>
             env.DB.prepare("INSERT OR IGNORE INTO votes (note_id, voter, created_at) VALUES (?, ?, ?)").bind(survivorId, v.voter, Date.now())
           ),
@@ -468,7 +470,7 @@ export default {
           env.DB.prepare(`DELETE FROM notes WHERE id IN (${vph})`).bind(...victimIds),
         ]);
         ctx.waitUntil(notifyBoardChange(env, boardId));
-        return json({ ok: true, survivor_id: survivorId, deleted: victimIds.length });
+        return json({ ok: true, survivor_id: survivorId, survivor_text: mergedText, deleted: victimIds.length });
       }
 
       // ---- toggle vote ----

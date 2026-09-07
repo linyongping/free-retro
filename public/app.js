@@ -1041,10 +1041,12 @@ async function confirmMerge() {
   const ids = [...mergeIds];
   try {
     const res = await api(`/api/boards/${state.board.id}/merge`, { method: "POST", body: { ids } });
-    const survivors = state.notes.filter((n) => ids.includes(n.id));
-    survivors[0].text = survivors.map((s) => s.text).join("\n");
-    survivors[0].vote_count = survivors.reduce((a, b) => a + (b.vote_count || 0), 0);
-    state.notes = state.notes.filter((n) => !ids.includes(n.id) || n.id === res.data.survivor_id);
+    const survivor = state.notes.find((n) => n.id === res.data.survivor_id);
+    if (survivor) {
+      survivor.text = res.data.survivor_text; // server-authoritative merged text
+      survivor.vote_count = res.data.votes || survivor.vote_count;
+    }
+    state.notes = state.notes.filter((n) => n.id === res.data.survivor_id);
     exitMergeMode();
     renderNotes();
     toast(`Merged ${res.data.deleted + 1} notes`);
