@@ -1107,8 +1107,8 @@ function showDragMergeConfirm(droppedNote, targetNote) {
       if (survivor) survivor.text = res.data.survivor_text;
       state.notes = state.notes.filter((n) => n.id === res.data.survivor_id);
       renderNotes();
-      toast("Merged 2 notes");
-    } catch { toast("Merge failed"); }
+      toast("Notes merged successfully");
+    } catch { toast("Merge failed — try again"); }
   }
 }
 
@@ -1247,20 +1247,25 @@ function startEdit(note, card, textEl) {
 }
 
 async function toggleVote(note) {
-  note.voted = note.voted ? 0 : 1;
-  note.vote_count += note.voted ? 1 : -1;
-  renderNotes(); // re-sort with the new count
+  const wasVoted = note.voted;
+  const wasCount = note.vote_count;
+  note.voted = wasVoted ? 0 : 1;
+  note.vote_count = wasVoted ? note.vote_count - 1 : note.vote_count + 1;
+  renderNotes();
   $app.querySelector(`.note[data-id="${note.id}"] .vote`)?.classList.add("bump");
   try {
     const res = await api(`/api/notes/${note.id}/vote`, { method: "POST", body: { voter: store.voter } });
-    note.voted = res.voted;
-    note.vote_count = res.vote_count;
+    if (res.voted !== note.voted || res.vote_count !== note.vote_count) {
+      note.voted = res.voted;
+      note.vote_count = res.vote_count;
+      renderNotes();
+    }
   } catch {
-    note.voted = note.voted ? 0 : 1;
-    note.vote_count += note.voted ? 1 : -1;
+    note.voted = wasVoted;
+    note.vote_count = wasCount;
     toast("Vote didn't stick — check your connection");
+    renderNotes();
   }
-  renderNotes();
 }
 
 async function doDelete(note, card) {
