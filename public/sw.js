@@ -1,5 +1,5 @@
 /* Free Retro service worker: offline app shell + graceful API offline handling. */
-const VERSION = "v2";
+const VERSION = "v3";
 const SHELL = `free-retro-${VERSION}`;
 const SHELL_ASSETS = [
   "/",

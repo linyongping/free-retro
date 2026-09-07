@@ -836,7 +836,7 @@ function renderBoardShell() {
     titleEl,
     h("div", { class: "spacer" }),
     buildTimerControl(),
-    h("button", { class: "btn ghost", onclick: enterMergeMode, "data-tip": "Merge selected notes into one", "data-tip-align": "right" }, h("span", { html: ICONS.check }), "Merge"),
+
     shareBtn,
     buildNamesToggle(),
     meBtn,
@@ -994,68 +994,7 @@ function renderNotes() {
   }
 }
 
-// ---------- merge mode ----------
-let mergeIds = new Set();
-
-function enterMergeMode() {
-  mergeIds.clear();
-  const el = $app.querySelector(".board-page");
-  el.classList.add("merge-mode");
-  renderMergeToolbar();
-}
-
-function exitMergeMode() {
-  mergeIds.clear();
-  const el = $app.querySelector(".board-page");
-  if (el) el.classList.remove("merge-mode");
-  const bar = $app.querySelector(".merge-toolbar");
-  if (bar) bar.remove();
-  $app.querySelectorAll(".note.selected").forEach((n) => n.classList.remove("selected"));
-}
-
-function toggleMergeId(id) {
-  if (mergeIds.has(id)) mergeIds.delete(id); else mergeIds.add(id);
-  const card = $app.querySelector(`.note[data-id="${id}"]`);
-  card?.classList.toggle("selected");
-  renderMergeToolbar();
-}
-
-function renderMergeToolbar() {
-  let bar = $app.querySelector(".merge-toolbar");
-  if (!bar) {
-    bar = h("div", { class: "merge-toolbar" });
-    $app.querySelector(".board-page")?.prepend(bar);
-  }
-  const n = mergeIds.size;
-  bar.replaceChildren(
-    h("span", { class: "merge-status" }, n ? `${n} selected` : "Tap notes to merge"),
-    n >= 2
-      ? h("button", { class: "btn accent merge-btn", onclick: confirmMerge }, "Merge")
-      : null,
-    h("button", { class: "btn ghost merge-btn", onclick: exitMergeMode }, n > 0 ? "Cancel" : "Exit"),
-  );
-}
-
-async function confirmMerge() {
-  if (mergeIds.size < 2) return;
-  const ids = [...mergeIds];
-  try {
-    const res = await api(`/api/boards/${state.board.id}/merge`, { method: "POST", body: { ids } });
-    const survivor = state.notes.find((n) => n.id === res.data.survivor_id);
-    if (survivor) {
-      survivor.text = res.data.survivor_text; // server-authoritative merged text
-      survivor.vote_count = res.data.votes || survivor.vote_count;
-    }
-    state.notes = state.notes.filter((n) => n.id === res.data.survivor_id);
-    exitMergeMode();
-    renderNotes();
-    toast(`Merged ${res.data.deleted + 1} notes`);
-  } catch {
-    toast("Merge failed — try again");
-    exitMergeMode();
-  }
-}
-
+// ---------- drag
 // ---------- drag to move notes (vertical within a column, or across columns) ----------
 let dropIndicator = null;
 let mergeHighlightCard = null;
