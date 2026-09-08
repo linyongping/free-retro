@@ -1103,12 +1103,14 @@ function showDragMergeConfirm(droppedNote, targetNote) {
     card.remove();
     try {
       const res = await api(`/api/boards/${state.board.id}/merge`, { method: "POST", body: { ids: [targetNote.id, droppedNote.id] } });
-      const survivor = state.notes.find((n) => n.id === res.data.survivor_id);
-      if (survivor) survivor.text = res.data.survivor_text;
-      state.notes = state.notes.filter((n) => n.id === res.data.survivor_id);
+      const survivor = state.notes.find((n) => n.id === res.survivor_id);
+      if (survivor) survivor.text = res.survivor_text;
+      state.notes = state.notes.filter((n) => n.id === res.survivor_id);
       renderNotes();
       toast("Notes merged successfully");
-    } catch { toast("Merge failed — try again"); }
+    } catch (err) {
+      toast("Merge failed — " + (err?.message || "unknown error"));
+    }
   }
 }
 
