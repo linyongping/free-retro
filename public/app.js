@@ -37,6 +37,7 @@ const ICONS = {
   user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>',
   download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M12 15l-5-5M12 15l5-5M4 19h16"/></svg>',
+  more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>',
 };
 
 // ---------- identity & palette ----------
@@ -310,21 +311,37 @@ async function renderTeam(seq = routeSeq, teamId) {
     nameInput.select();
   }
 
+  const teamLinkBtn = h("button", {
+    class: "btn ghost mobile-action", "data-tip": "Copy the team link to share", "data-tip-align": "right", onclick: async () => {
+      try { await navigator.clipboard.writeText(location.href); toast("Team link copied — share it with your teammates"); }
+      catch { toast("Copy failed — grab it from the address bar"); }
+    },
+  }, h("span", { html: ICONS.link }), "Team link");
+
+  const exportBtn = h("button", {
+    class: "btn ghost mobile-action", "data-tip": "Export team data as CSV, Excel, or PDF", "data-tip-align": "right",
+    onclick: () => showExportDialog(teamId, team.name),
+  }, h("span", { html: ICONS.download }), "Export");
+
+  const manageLink = h("a", { class: "btn ghost mobile-action", href: `#/t/${teamId}/admin`, "data-tip": "Manage boards, trash, and team deletion", "data-tip-align": "right" }, "Manage");
+
+  const teamMoreBtn = h("button", {
+    class: "btn ghost mobile-more",
+    onclick: () => showMobileMenu([
+      { label: "Team link", icon: ICONS.link, onclick: () => teamLinkBtn.click() },
+      { label: "Export", icon: ICONS.download, onclick: () => exportBtn.click() },
+      { label: "Manage", icon: ICONS.trash, onclick: () => location.hash = `#/t/${teamId}/admin` },
+    ])
+  }, h("span", { html: ICONS.more }));
+
   const head = h("nav", { class: "topbar" },
     h("a", { class: "back", href: "#/" }, h("span", { html: ICONS.back }), "Teams"),
     h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, team.name),
     h("div", { class: "spacer" }),
-    h("button", {
-      class: "btn ghost", "data-tip": "Copy the team link to share", "data-tip-align": "right", onclick: async () => {
-        try { await navigator.clipboard.writeText(location.href); toast("Team link copied — share it with your teammates"); }
-        catch { toast("Copy failed — grab it from the address bar"); }
-      },
-    }, h("span", { html: ICONS.link }), "Team link"),
-    h("button", {
-      class: "btn ghost", "data-tip": "Export team data as CSV, Excel, or PDF", "data-tip-align": "right",
-      onclick: () => showExportDialog(teamId, team.name),
-    }, h("span", { html: ICONS.download }), "Export"),
-    h("a", { class: "btn ghost", href: `#/t/${teamId}/admin`, "data-tip": "Manage boards, trash, and team deletion", "data-tip-align": "right" }, "Manage"),
+    teamMoreBtn,
+    teamLinkBtn,
+    exportBtn,
+    manageLink,
   );
 
   // create-board card (scoped to this team); pre-filled with the dated default
@@ -825,25 +842,41 @@ function renderBoardShell() {
   }, b.title);
 
   const shareBtn = h("button", {
-    class: "btn ghost", "data-tip": "Copy the board link to share with your team", "data-tip-align": "right", onclick: async () => {
+    class: "btn ghost mobile-action", "data-tip": "Copy the board link to share with your team", "data-tip-align": "right", onclick: async () => {
       try { await navigator.clipboard.writeText(location.href); toast("Link copied — share it with your team"); }
       catch { toast("Copy failed — grab it from the address bar"); }
     },
   }, h("span", { html: ICONS.link }), "Share");
 
-  const meBtn = h("button", { class: "me-chip", "data-tip": "Change your name", "data-tip-align": "right", onclick: () => showNameModal() },
+  const meBtn = h("button", { class: "me-chip mobile-action", "data-tip": "Change your name", "data-tip-align": "right", onclick: () => showNameModal() },
     h("span", { class: "avatar", style: `--av: hsl(${avatarHue(store.name)}, 70%, 72%)` }, initialsOf(store.name)),
     store.name || "Set your name",
   );
+
+  const timerControl = buildTimerControl();
+  if (timerControl.classList) timerControl.classList.add("mobile-action");
+
+  const namesToggle = buildNamesToggle();
+  if (namesToggle.classList) namesToggle.classList.add("mobile-action");
+
+  const moreBtn = h("button", {
+    class: "btn ghost mobile-more",
+    onclick: () => showMobileMenu([
+      { label: "Timer", icon: ICONS.clock, onclick: () => { /* timer is handled separately */ } },
+      { label: "Share", icon: ICONS.link, onclick: () => shareBtn.click() },
+      { label: "Show Names", icon: ICONS.user, onclick: () => namesToggle.click() },
+      { label: "Change Name", icon: ICONS.pencil, onclick: () => showNameModal() },
+    ])
+  }, h("span", { html: ICONS.more }));
 
   const topbar = h("nav", { class: "topbar" },
     h("a", { class: "back", href: `#/t/${state.board.team_id || ""}` }, h("span", { html: ICONS.back }), "Boards"),
     titleEl,
     h("div", { class: "spacer" }),
-    buildTimerControl(),
-
+    moreBtn,
+    timerControl,
     shareBtn,
-    buildNamesToggle(),
+    namesToggle,
     meBtn,
   );
 
@@ -1661,6 +1694,33 @@ function showExportDialog(teamId, teamName) {
         h("button", { class: "export-btn", "data-format": "pdf", onclick: () => handleExport("pdf") }, "PDF"),
       ),
       h("button", { class: "export-cancel", onclick: close }, "Cancel"),
+    )
+  );
+
+  document.body.append(dialog);
+}
+
+// ---------- mobile menu ----------
+function showMobileMenu(items) {
+  const existing = document.getElementById("mobile-menu");
+  if (existing) existing.remove();
+
+  const close = () => document.getElementById("mobile-menu")?.remove();
+
+  const menuItems = items.map(item =>
+    h("button", {
+      class: "mobile-menu-item",
+      onclick: () => { close(); item.onclick(); }
+    },
+      item.icon ? h("span", { class: "mobile-menu-icon", html: item.icon }) : null,
+      h("span", {}, item.label)
+    )
+  );
+
+  const dialog = h("div", { class: "overlay", id: "mobile-menu", onclick: (e) => { if (e.target === e.currentTarget) close(); } },
+    h("div", { class: "mobile-menu-card" },
+      h("div", { class: "mobile-menu-list" }, ...menuItems),
+      h("button", { class: "mobile-menu-cancel", onclick: close }, "Cancel"),
     )
   );
 
