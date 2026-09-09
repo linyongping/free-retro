@@ -874,6 +874,9 @@ input, textarea { font: inherit; color: inherit; }
   .board-title, .team-title { order: 3; flex: 1 1 auto; white-space: normal; font-size: 27px; padding: 2px 6px; align-self: center; }
   .board-title-input { order: 3; flex: 1 1 100%; }
   .timer-chip { font-size: 19px; padding: 6px 13px; }
+  /* compact topbar buttons on mobile */
+  .topbar > .btn, .topbar > a.btn { padding: 6px 10px; font-size: 12px; gap: 4px; }
+  .topbar > .btn svg, .topbar > a.btn svg { width: 13px; height: 13px; }
   /* banner pill wraps instead of overflowing narrow screens */
   .timer-banner .t-pill { flex-wrap: wrap; justify-content: center; row-gap: 2px; max-width: calc(100vw - 28px); text-align: center; }
   /* admin page */
