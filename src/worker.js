@@ -209,6 +209,43 @@ export default {
         return json({ boards: results });
       }
 
+      // ---- team export: all boards with notes and votes ----
+      if ((m = path.match(/^\/api\/teams\/([a-z0-9]+)\/export$/)) && method === "GET") {
+        const teamId = m[1];
+        const team = await env.DB.prepare("SELECT id, name, created_at FROM teams WHERE id = ?")
+          .bind(teamId)
+          .first();
+        if (!team) return json({ error: "team_not_found" }, 404);
+
+        // Fetch all active boards for the team
+        const { results: boards } = await env.DB.prepare(
+          `SELECT b.id, b.title, b.created_at
+           FROM boards b
+           WHERE b.team_id = ? AND b.deleted_at IS NULL
+           ORDER BY b.created_at ASC`
+        )
+          .bind(teamId)
+          .all();
+
+        // Fetch notes with vote counts for each board
+        const boardsWithNotes = await Promise.all(
+          boards.map(async (board) => {
+            const { results: notes } = await env.DB.prepare(
+              `SELECT n.id, n.column_key, n.text, n.author, n.created_at,
+                 (SELECT COUNT(*) FROM votes v WHERE v.note_id = n.id) AS vote_count
+               FROM notes n
+               WHERE n.board_id = ?
+               ORDER BY n.column_key, n.sort_order ASC`
+            )
+              .bind(board.id)
+              .all();
+            return { ...board, notes };
+          })
+        );
+
+        return json({ team, boards: boardsWithNotes });
+      }
+
       // ---- boards collection (legacy, unused by the UI) ----
       if (path === "/api/boards" && method === "GET") {
         const trash = url.searchParams.get("trash") === "1";

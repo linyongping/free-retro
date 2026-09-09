@@ -36,6 +36,7 @@ const ICONS = {
   grip: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>',
   user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>',
+  download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M12 15l-5-5M12 15l5-5M4 19h16"/></svg>',
 };
 
 // ---------- identity & palette ----------
@@ -319,6 +320,10 @@ async function renderTeam(seq = routeSeq, teamId) {
         catch { toast("Copy failed — grab it from the address bar"); }
       },
     }, h("span", { html: ICONS.link }), "Team link"),
+    h("button", {
+      class: "btn ghost", "data-tip": "Export team data as CSV, Excel, or PDF", "data-tip-align": "right",
+      onclick: () => showExportDialog(teamId, team.name),
+    }, h("span", { html: ICONS.download }), "Export"),
     h("a", { class: "btn ghost", href: `#/t/${teamId}/admin`, "data-tip": "Manage boards, trash, and team deletion", "data-tip-align": "right" }, "Manage"),
   );
 
@@ -1473,6 +1478,193 @@ function showGate() {
     ),
   );
   input.focus();
+}
+
+// ---------- export functionality ----------
+async function fetchTeamExportData(teamId) {
+  return api(`/api/teams/${teamId}/export`);
+}
+
+function generateCSV(data) {
+  const { team, boards } = data;
+  const rows = [["Board", "Column", "Text", "Author", "Votes", "Created At"]];
+
+  for (const board of boards) {
+    for (const note of board.notes) {
+      const columnLabel = note.column_key === "went_well" ? "Went Well"
+        : note.column_key === "to_improve" ? "To Improve" : "Actions";
+      const createdAt = new Date(note.created_at).toLocaleDateString();
+      rows.push([
+        board.title,
+        columnLabel,
+        note.text.replace(/"/g, '""'),
+        note.author || "",
+        note.vote_count,
+        createdAt
+      ]);
+    }
+  }
+
+  return rows.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+}
+
+function generateExcel(data) {
+  const { team, boards } = data;
+  const wb = XLSX.utils.book_new();
+
+  for (const board of boards) {
+    const rows = [["Column", "Text", "Author", "Votes", "Created At"]];
+    for (const note of board.notes) {
+      const columnLabel = note.column_key === "went_well" ? "Went Well"
+        : note.column_key === "to_improve" ? "To Improve" : "Actions";
+      const createdAt = new Date(note.created_at).toLocaleDateString();
+      rows.push([columnLabel, note.text, note.author || "", note.vote_count, createdAt]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    // Sheet name max 31 chars, no special chars
+    const sheetName = board.title.replace(/[\\/*?:\[\]]/g, "").slice(0, 31) || "Board";
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  }
+
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" });
+}
+
+function generatePDF(data) {
+  const { team, boards } = data;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  // Title
+  doc.setFontSize(18);
+  doc.text(`${team.name} - Retrospective Export`, 14, 22);
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 30);
+  doc.setTextColor(0);
+
+  let yPos = 40;
+
+  for (const board of boards) {
+    // Check if we need a new page
+    if (yPos > 250) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    // Board title
+    doc.setFontSize(13);
+    doc.setFont(undefined, "bold");
+    doc.text(board.title, 14, yPos);
+    doc.setFont(undefined, "normal");
+    yPos += 8;
+
+    // Notes grouped by column
+    const columns = ["went_well", "to_improve", "actions"];
+    const columnLabels = { went_well: "Went Well", to_improve: "To Improve", actions: "Actions" };
+
+    for (const col of columns) {
+      const notes = board.notes.filter(n => n.column_key === col);
+      if (notes.length === 0) continue;
+
+      if (yPos > 250) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      doc.setFontSize(11);
+      doc.setFont(undefined, "bold");
+      doc.text(columnLabels[col], 14, yPos);
+      doc.setFont(undefined, "normal");
+      yPos += 6;
+
+      for (const note of notes) {
+        if (yPos > 270) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.setFontSize(9);
+        const voteText = note.vote_count > 0 ? ` (${note.vote_count} votes)` : "";
+        const authorText = note.author ? ` - ${note.author}` : "";
+        doc.text(`• ${note.text.slice(0, 80)}${note.text.length > 80 ? "..." : ""}${voteText}${authorText}`, 18, yPos);
+        yPos += 5;
+      }
+      yPos += 3;
+    }
+    yPos += 5;
+  }
+
+  return doc.output("arraybuffer");
+}
+
+function downloadFile(content, filename, mimeType) {
+  let blob;
+  if (content instanceof ArrayBuffer) {
+    blob = new Blob([content], { type: mimeType });
+  } else {
+    blob = new Blob([content], { type: mimeType });
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function showExportDialog(teamId, teamName) {
+  const existing = document.getElementById("export-dialog");
+  if (existing) existing.remove();
+
+  const close = () => document.getElementById("export-dialog")?.remove();
+
+  const handleExport = async (format) => {
+    const btn = document.querySelector(`.export-btn[data-format="${format}"]`);
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Exporting...";
+    }
+    try {
+      const data = await fetchTeamExportData(teamId);
+      const safeName = teamName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
+      const date = new Date().toISOString().slice(0, 10);
+
+      if (format === "csv") {
+        const csv = generateCSV(data);
+        downloadFile(csv, `${safeName}_retro_${date}.csv`, "text/csv;charset=utf-8");
+      } else if (format === "excel") {
+        const excel = generateExcel(data);
+        downloadFile(excel, `${safeName}_retro_${date}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      } else if (format === "pdf") {
+        const pdf = generatePDF(data);
+        downloadFile(pdf, `${safeName}_retro_${date}.pdf`, "application/pdf");
+      }
+      toast(`Exported as ${format.toUpperCase()}`);
+      close();
+    } catch (err) {
+      toast("Export failed — " + (err.message || "unknown error"));
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = format.toUpperCase();
+      }
+    }
+  };
+
+  const dialog = h("div", { class: "overlay", id: "export-dialog" },
+    h("div", { class: "export-dialog-card" },
+      h("h3", {}, "Export Team Data"),
+      h("p", { class: "export-team-name" }, teamName),
+      h("div", { class: "export-buttons" },
+        h("button", { class: "export-btn", "data-format": "csv", onclick: () => handleExport("csv") }, "CSV"),
+        h("button", { class: "export-btn", "data-format": "excel", onclick: () => handleExport("excel") }, "Excel"),
+        h("button", { class: "export-btn", "data-format": "pdf", onclick: () => handleExport("pdf") }, "PDF"),
+      ),
+      h("button", { class: "export-cancel", onclick: close }, "Cancel"),
+    )
+  );
+
+  document.body.append(dialog);
 }
 
 // ---------- boot ----------
