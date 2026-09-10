@@ -1,0 +1,82 @@
+name: Test and deploy
+
+# Tests run on every pull request; a push to main additionally deploys, and
+# `npm run deploy` stamps a build id into public/app.js so the footer label
+# always identifies the running code.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # never let a first-run telemetry prompt stall the job
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The suite exercises the real Worker over HTTP, so it needs a local D1
+      # with the schema applied and a passcode configured — the auth test
+      # asserts that an unauthenticated request is rejected, which only holds
+      # when a passcode is set.
+      - name: Prepare local D1 and passcode
+        run: |
+          echo "SITE_PASSCODE=ci-passcode" > .dev.vars
+          npx wrangler d1 execute free-retro-db --local --file=./schema.sql
+
+      - name: Start the dev server
+        run: |
+          npx wrangler dev --local --port 8787 > /tmp/wrangler-dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:8787/; then
+              echo "dev server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "dev server did not come up:"; cat /tmp/wrangler-dev.log; exit 1
+
+      - name: Run API tests
+        run: TEST_BASE=http://localhost:8787 TEST_PASSCODE=ci-passcode node --test test/api.test.mjs
+
+      - name: Show dev server log on failure
+        if: failure()
+        run: cat /tmp/wrangler-dev.log
+
+  deploy:
+    needs: test
+    # never deploy a pull request, and never deploy a non-main ref
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Stamps the build id, deploys, then restores public/app.js.
+      # Requires repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+      # Worker secrets such as SITE_PASSCODE live in Cloudflare and are untouched.
+      - name: Deploy
+        run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -67,6 +67,26 @@ echo "your-passcode" | npx wrangler secret put SITE_PASSCODE   # site lock
 npm run deploy
 ```
 
+`npm run deploy` stamps a build id (`<YYMMDD>.<short sha>`, `+dirty` when the
+tree has uncommitted changes) into `public/app.js` for the duration of the
+deploy, then restores the file. The home footer shows it, and clicking it
+compares the running build against the deployed one — so a browser sitting on
+a cached build is visible instead of looking like a fix that never shipped.
+Running `wrangler deploy` directly skips the stamp and the footer reads `dev`.
+
+### Deploying from CI
+
+`.github/workflows/ci.yml` runs the API tests on every pull request, and on a
+push to `main` deploys once they pass. It needs two repository secrets:
+
+| Secret | Notes |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Workers Scripts:Edit, D1:Edit, Workers KV/Durable Objects as prompted |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers overview, right sidebar |
+
+Worker secrets (`SITE_PASSCODE`) are stored in Cloudflare and are not touched
+by a deploy.
+
 ## Observability
 
 Worker logs (errors + `console.*`) are shipped to Cloudflare Workers Logs
