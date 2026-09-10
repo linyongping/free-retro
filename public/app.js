@@ -1328,7 +1328,7 @@ function noteCard(note) {
   const voteBtn = h("button", {
     class: "vote" + (note.voted ? " voted" : ""),
     "aria-label": note.voted ? "Remove your vote" : "Vote for this note",
-    onclick: () => toggleVote(note),
+    onclick: () => toggleVote(note.id),
   }, h("span", { html: ICONS.heart }), note.vote_count > 0 ? String(note.vote_count) : "");
 
   // edit + delete are open to everyone (trusted-team model, like dragging)
@@ -1411,7 +1411,12 @@ function startEdit(note, card, textEl) {
   ta.setSelectionRange(ta.value.length, ta.value.length);
 }
 
-async function toggleVote(note) {
+async function toggleVote(noteId) {
+  // Resolve through state.notes instead of trusting the object captured when the
+  // card was rendered: a sync can replace those objects, and mutating a detached
+  // one would leave the screen unchanged until the server's value came back.
+  const note = state.notes.find((n) => n.id === noteId);
+  if (!note) return;
   const wasVoted = note.voted;
   const wasCount = note.vote_count;
   note.voted = wasVoted ? 0 : 1;
@@ -1451,8 +1456,15 @@ async function refreshBoard() {
     state.pollFailures = 0;
     const before = JSON.stringify(state.notes.map(({ id, text, vote_count, voted, author, column_key, sort_order, updated_at }) => [id, text, vote_count, voted, author, column_key, sort_order, updated_at]));
     const after = JSON.stringify(data.notes.map(({ id, text, vote_count, voted, author, column_key, sort_order, updated_at }) => [id, text, vote_count, voted, author, column_key, sort_order, updated_at]));
-    state.notes = data.notes;
-    if (before !== after) renderNotes();
+    // Swap the array only when something actually changed. Rendered cards hold
+    // references to these objects, so replacing the array without re-rendering
+    // leaves every card pointing at a detached object: a vote click would then
+    // mutate the orphan and show nothing until the next sync brought the
+    // server's value back (the 1-2s lag when voting felt unresponsive).
+    if (before !== after) {
+      state.notes = data.notes;
+      renderNotes();
+    }
     state.serverOffset = (data.now || Date.now()) - Date.now();
     const prevTimer = state.timerEndsAt;
     state.timerEndsAt = data.board.timer_ends_at || null;
