@@ -1562,71 +1562,100 @@ function generateExcel(data) {
   return XLSX.write(wb, { bookType: "xlsx", type: "array" });
 }
 
-function generatePDF(data) {
+// Render the export as a print-ready document and hand it to the browser,
+// which handles wrapping, non-Latin text and page breaks far better than
+// hand-positioned PDF drawing does.
+function buildPrintHTML(data) {
   const { team, boards } = data;
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const columnLabels = { went_well: "Went Well", to_improve: "To Improve", actions: "Actions" };
+  const columns = ["went_well", "to_improve", "actions"];
 
-  // Title
-  doc.setFontSize(18);
-  doc.text(`${team.name} - Retrospective Export`, 14, 22);
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 30);
-  doc.setTextColor(0);
+  const boardsHTML = boards.map((board) => {
+    const cols = columns.map((col) => {
+      const notes = board.notes.filter((n) => n.column_key === col);
+      if (!notes.length) return "";
+      const items = notes.map((note) => {
+        const badge = note.vote_count > 0
+          ? `<span class="badge">${note.vote_count} vote${note.vote_count === 1 ? "" : "s"}</span>`
+          : "";
+        const author = note.author ? `<span class="author">${esc(note.author)}</span>` : "";
+        const head = badge || author ? `<div class="note-head">${badge}${author}</div>` : "";
+        return `<li>${head}<div class="note-text">${esc(note.text)}</div></li>`;
+      }).join("");
+      return `<div class="col"><h3>${columnLabels[col]}</h3><ul>${items}</ul></div>`;
+    }).join("");
 
-  let yPos = 40;
+    const count = board.notes.length;
+    return `<section class="board">
+      <h2>${esc(board.title)}</h2>
+      <div class="board-meta">${new Date(board.created_at).toLocaleDateString()} · ${count} note${count === 1 ? "" : "s"}</div>
+      ${cols ? `<div class="cols">${cols}</div>` : '<p class="empty">No notes on this board.</p>'}
+    </section>`;
+  }).join("");
 
-  for (const board of boards) {
-    // Check if we need a new page
-    if (yPos > 250) {
-      doc.addPage();
-      yPos = 20;
-    }
-
-    // Board title
-    doc.setFontSize(13);
-    doc.setFont(undefined, "bold");
-    doc.text(board.title, 14, yPos);
-    doc.setFont(undefined, "normal");
-    yPos += 8;
-
-    // Notes grouped by column
-    const columns = ["went_well", "to_improve", "actions"];
-    const columnLabels = { went_well: "Went Well", to_improve: "To Improve", actions: "Actions" };
-
-    for (const col of columns) {
-      const notes = board.notes.filter(n => n.column_key === col);
-      if (notes.length === 0) continue;
-
-      if (yPos > 250) {
-        doc.addPage();
-        yPos = 20;
-      }
-
-      doc.setFontSize(11);
-      doc.setFont(undefined, "bold");
-      doc.text(columnLabels[col], 14, yPos);
-      doc.setFont(undefined, "normal");
-      yPos += 6;
-
-      for (const note of notes) {
-        if (yPos > 270) {
-          doc.addPage();
-          yPos = 20;
-        }
-        doc.setFontSize(9);
-        const voteText = note.vote_count > 0 ? ` (${note.vote_count} votes)` : "";
-        const authorText = note.author ? ` - ${note.author}` : "";
-        doc.text(`• ${note.text.slice(0, 80)}${note.text.length > 80 ? "..." : ""}${voteText}${authorText}`, 18, yPos);
-        yPos += 5;
-      }
-      yPos += 3;
-    }
-    yPos += 5;
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${esc(team.name)} — Retrospective Export</title>
+<style>
+  @page { margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: #3f3826; margin: 0; font-size: 12px; line-height: 1.5;
   }
+  header { border-bottom: 2px solid #e6dcc3; padding-bottom: 10px; margin-bottom: 22px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .gen { color: #8a7f66; font-size: 11px; }
+  .board { margin-bottom: 26px; padding-bottom: 18px; border-bottom: 1px dashed #e6dcc3; }
+  .board:last-child { border-bottom: 0; padding-bottom: 0; }
+  .board h2 { font-size: 16px; margin: 0 0 2px; break-after: avoid; page-break-after: avoid; }
+  .board-meta { color: #8a7f66; font-size: 11px; margin-bottom: 10px; break-after: avoid; page-break-after: avoid; }
+  .cols { display: flex; flex-direction: column; gap: 12px; }
+  .col h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+    color: #8a7f66; margin: 0 0 6px; break-after: avoid; page-break-after: avoid;
+  }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  li {
+    break-inside: avoid; page-break-inside: avoid;
+    border: 1px solid #e6dcc3; border-radius: 6px; padding: 7px 10px; background: #fdfbf5;
+  }
+  .note-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .badge { background: #efe6cf; color: #6b5f45; border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 600; }
+  .author { color: #8a7f66; font-size: 10px; font-weight: 600; }
+  .note-text { white-space: pre-wrap; word-break: break-word; }
+  .empty { color: #a89c82; font-style: italic; }
+</style></head>
+<body>
+  <header>
+    <h1>${esc(team.name)}</h1>
+    <div class="gen">Retrospective export · ${new Date().toLocaleDateString()} · ${boards.length} board${boards.length === 1 ? "" : "s"}</div>
+  </header>
+  ${boardsHTML || '<p class="empty">This team has no boards yet.</p>'}
+</body></html>`;
 
-  return doc.output("arraybuffer");
+  return html;
+}
+
+function generatePDF(data) {
+  const html = buildPrintHTML(data);
+
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(iframe);
+  const idoc = iframe.contentDocument;
+  idoc.open();
+  idoc.write(html);
+  idoc.close();
+
+  const cleanup = () => setTimeout(() => iframe.remove(), 1000);
+  iframe.contentWindow.onafterprint = cleanup;
+  setTimeout(() => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    setTimeout(cleanup, 120000); // fallback if onafterprint never fires
+  }, 300);
 }
 
 function downloadFile(content, filename, mimeType) {
@@ -1660,6 +1689,15 @@ function showExportDialog(teamId, teamName) {
     }
     try {
       const data = await fetchTeamExportData(teamId);
+
+      // PDF goes through the browser's print pipeline (choose "Save as PDF")
+      if (format === "pdf") {
+        generatePDF(data);
+        toast("Print dialog opened — choose “Save as PDF”");
+        close();
+        return;
+      }
+
       const safeName = teamName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30);
       const date = new Date().toISOString().slice(0, 10);
 
@@ -1669,9 +1707,6 @@ function showExportDialog(teamId, teamName) {
       } else if (format === "excel") {
         const excel = generateExcel(data);
         downloadFile(excel, `${safeName}_retro_${date}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      } else if (format === "pdf") {
-        const pdf = generatePDF(data);
-        downloadFile(pdf, `${safeName}_retro_${date}.pdf`, "application/pdf");
       }
       toast(`Exported as ${format.toUpperCase()}`);
       close();
