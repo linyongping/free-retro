@@ -5,7 +5,7 @@
   "description": "A simple free retrospective board on Cloudflare Workers + D1",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "node scripts/stamp-deploy.mjs",
     "db:schema:local": "wrangler d1 execute free-retro-db --local --file=./schema.sql",
     "db:schema:remote": "wrangler d1 execute free-retro-db --remote --file=./schema.sql",
     "test": "node --test"

@@ -43,8 +43,10 @@ const ICONS = {
 // ---------- build version ----------
 // Single source of truth for the running build. The home footer shows it, and
 // clicking it compares against the deployed script, so a stale cache is
-// obvious instead of looking like a missing fix. Bump on every deploy.
-const APP_VERSION = "v1.1.0";
+// obvious instead of looking like a missing fix. scripts/stamp-deploy.mjs
+// swaps this for a build id during `npm run deploy`; "dev" means the file ran
+// straight from the working tree (wrangler dev, or a raw `wrangler deploy`).
+const APP_VERSION = "dev";
 
 async function checkForUpdate(btn) {
   btn.disabled = true;
@@ -59,7 +61,9 @@ async function checkForUpdate(btn) {
       toast(`Running ${APP_VERSION} — couldn't read the deployed build`);
     } else if (deployed === APP_VERSION) {
       btn.textContent = APP_VERSION;
-      toast(`Latest build — you're on ${APP_VERSION}`);
+      toast(APP_VERSION === "dev"
+        ? "Unstamped build (dev) — deploy with `npm run deploy` to stamp it"
+        : `Latest build — you're on ${APP_VERSION}`);
     } else {
       btn.textContent = `${APP_VERSION} → ${deployed}`;
       toast(`New build ${deployed} is live — reloading gets you there`);
