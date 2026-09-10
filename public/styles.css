@@ -301,6 +301,22 @@ input, textarea { font: inherit; color: inherit; }
 }
 .home-foot a { color: inherit; text-decoration: underline dashed; text-underline-offset: 3px; }
 .home-foot a:hover { color: var(--accent); }
+.foot-sep { margin: 0 8px; }
+.ver-chip {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.ver-chip:hover { color: var(--accent); background: rgba(255, 253, 244, 0.75); }
+.ver-chip:disabled { cursor: default; }
+.ver-chip[disabled] { opacity: 0.7; }
 
 /* ============================================================
    Admin — manage boards
@@ -612,6 +628,15 @@ input, textarea { font: inherit; color: inherit; }
   white-space: pre-wrap;
 }
 .note-text .dim { color: rgba(63, 56, 38, 0.45); }
+/* divider between the parts of a merged note; spans the note, unlike the
+   fixed-length run of ╌ characters kept in the stored text */
+.note-rule {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  border-top: 2px dashed rgba(63, 56, 38, 0.3);
+  white-space: normal; /* collapses the newline it carries for copy/paste */
+}
 
 .note-edit-ta {
   display: block;

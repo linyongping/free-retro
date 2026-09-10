@@ -40,6 +40,38 @@ const ICONS = {
   more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>',
 };
 
+// ---------- build version ----------
+// Single source of truth for the running build. The home footer shows it, and
+// clicking it compares against the deployed script, so a stale cache is
+// obvious instead of looking like a missing fix. Bump on every deploy.
+const APP_VERSION = "v1.1.0";
+
+async function checkForUpdate(btn) {
+  btn.disabled = true;
+  btn.textContent = "checking…";
+  try {
+    const res = await fetch(`/app.js?build=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("fetch failed");
+    const deployed = ((await res.text()).match(/const APP_VERSION = "([^"]+)"/) || [])[1];
+    btn.disabled = false;
+    if (!deployed) {
+      btn.textContent = APP_VERSION;
+      toast(`Running ${APP_VERSION} — couldn't read the deployed build`);
+    } else if (deployed === APP_VERSION) {
+      btn.textContent = APP_VERSION;
+      toast(`Latest build — you're on ${APP_VERSION}`);
+    } else {
+      btn.textContent = `${APP_VERSION} → ${deployed}`;
+      toast(`New build ${deployed} is live — reloading gets you there`);
+      btn.onclick = () => location.reload();
+    }
+  } catch {
+    btn.disabled = false;
+    btn.textContent = APP_VERSION;
+    toast("Couldn't check for updates — are you offline?");
+  }
+}
+
 // ---------- identity & palette ----------
 const store = {
   get name() { return localStorage.getItem("retro:name") || ""; },
@@ -245,6 +277,12 @@ async function renderHome(seq = routeSeq) {
   root.append(
     h("div", { class: "home-foot" },
       "free-retro · runs entirely on Cloudflare's free tier · your data lives in D1",
+      h("span", { class: "foot-sep" }, "·"),
+      h("button", {
+        class: "ver-chip", type: "button",
+        title: "Click to check whether a newer build has been deployed",
+        onclick: (e) => checkForUpdate(e.currentTarget),
+      }, APP_VERSION),
     ),
   );
 }
@@ -1020,6 +1058,36 @@ function buildColumn(col) {
 }
 
 // ---------- notes ----------
+// A merge joins the parts of the surviving note with a run of ╌ characters in
+// the stored text. Drawing that run as-is gives a line of fixed length that
+// never matches the card, so split on it and draw a rule that spans the note.
+const NOTE_SEPARATOR = /^\s*╌{3,}\s*$/;
+
+function noteSegments(text) {
+  const out = [];
+  let pending = [];
+  const flush = () => {
+    if (pending.length) { out.push({ text: pending.join("\n") }); pending = []; }
+  };
+  for (const line of String(text ?? "").split("\n")) {
+    if (NOTE_SEPARATOR.test(line)) { flush(); out.push({ rule: true }); }
+    else pending.push(line);
+  }
+  flush();
+  return out;
+}
+
+function renderNoteText(text) {
+  const frag = document.createDocumentFragment();
+  for (const seg of noteSegments(text)) {
+    // the rule carries a newline so copying the note still shows the break;
+    // white-space:normal collapses it, so it only draws the divider
+    if (seg.rule) frag.append(h("span", { class: "note-rule", "aria-hidden": "true" }, "\n"));
+    else frag.append(document.createTextNode(seg.text));
+  }
+  return frag;
+}
+
 function sortNotes(a, b) {
   return (a.sort_order ?? a.created_at) - (b.sort_order ?? b.created_at);
 }
@@ -1202,7 +1270,7 @@ function noteCard(note) {
     dataset: { id: note.id },
   });
 
-  const textEl = h("div", { class: "note-text" }, note.text);
+  const textEl = h("div", { class: "note-text" }, renderNoteText(note.text));
 
   // author
   const author = note.author
@@ -1624,7 +1692,10 @@ function buildPrintHTML(data) {
           : "";
         const author = note.author ? `<span class="author">${esc(note.author)}</span>` : "";
         const head = badge || author ? `<div class="note-head">${badge}${author}</div>` : "";
-        return `<li>${head}<div class="note-text">${esc(note.text)}</div></li>`;
+        const body = noteSegments(note.text)
+          .map((seg) => (seg.rule ? '<span class="note-rule">\n</span>' : esc(seg.text)))
+          .join("");
+        return `<li>${head}<div class="note-text">${body}</div></li>`;
       }).join("");
       return `<div class="col"><h3>${columnLabels[col]}</h3><ul>${items}</ul></div>`;
     }).join("");
@@ -1667,6 +1738,7 @@ function buildPrintHTML(data) {
   .badge { background: #efe6cf; color: #6b5f45; border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 600; }
   .author { color: #8a7f66; font-size: 10px; font-weight: 600; }
   .note-text { white-space: pre-wrap; word-break: break-word; }
+  .note-rule { display: block; border-top: 1px dashed #d8cdb2; margin: 6px 0; white-space: normal; }
   .empty { color: #a89c82; font-style: italic; }
 </style></head>
 <body>
