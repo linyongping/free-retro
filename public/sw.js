@@ -1,5 +1,5 @@
 /* Free Retro service worker: offline app shell + graceful API offline handling. */
-const VERSION = "v4";
+const VERSION = "v5";
 const SHELL = `free-retro-${VERSION}`;
 const SHELL_ASSETS = [
   "/",
@@ -12,6 +12,11 @@ const SHELL_ASSETS = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
 ];
+
+// Code and markup change on every deploy. Serving these cache-first means the
+// first visit after a release always runs the previous build, so they go to the
+// network first and only fall back to the cache when offline.
+const NETWORK_FIRST = new Set(["/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest"]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -46,16 +51,27 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // static app shell: serve from cache, refresh in the background
+  const cacheIt = (res) => {
+    // Clone before handing the response to the page: once the page has read the
+    // body, res.clone() throws and the cache silently stops updating.
+    if (res.ok) {
+      const copy = res.clone();
+      caches.open(SHELL).then((cache) => cache.put(event.request, copy)).catch(() => {});
+    }
+    return res;
+  };
+
+  if (NETWORK_FIRST.has(url.pathname)) {
+    event.respondWith(
+      fetch(event.request)
+        .then(cacheIt)
+        .catch(async () => (await caches.match(event.request)) || Response.error())
+    );
+    return;
+  }
+
+  // fonts and icons are immutable for a given filename, so the cache is safe
   event.respondWith(
-    caches.match(event.request).then((hit) => {
-      const refresh = fetch(event.request)
-        .then((res) => {
-          if (res.ok) caches.open(SHELL).then((cache) => cache.put(event.request, res.clone()));
-          return res;
-        })
-        .catch(() => hit);
-      return hit || refresh;
-    })
+    caches.match(event.request).then((hit) => hit || fetch(event.request).then(cacheIt).catch(() => Response.error()))
   );
 });

@@ -141,7 +141,11 @@ async function route() {
   const seq = ++routeSeq;
   closeTimerMenu(); // never leak the menu's document listener across navigations
   const hash = location.hash || "#/";
-  if (!hash.startsWith("#/b/")) closeBoardWS();
+  if (!hash.startsWith("#/b/")) {
+    closeBoardWS();
+    // a name prompt opened for a board must not follow the user to another page
+    document.querySelector(".overlay.name-overlay")?.remove();
+  }
   const bm = hash.match(/^#\/b\/([a-z0-9]+)/);
   const am = hash.match(/^#\/t\/([a-z0-9]+)\/admin$/);
   const tm = hash.match(/^#\/t\/([a-z0-9]+)$/);
@@ -855,6 +859,7 @@ function renderBoardShell() {
 
   const timerControl = buildTimerControl();
   if (timerControl.classList) timerControl.classList.add("mobile-action");
+  const timerBtn = timerControl.querySelector("button");
 
   const namesToggle = buildNamesToggle();
   if (namesToggle.classList) namesToggle.classList.add("mobile-action");
@@ -862,7 +867,9 @@ function renderBoardShell() {
   const moreBtn = h("button", {
     class: "btn ghost mobile-more",
     onclick: () => showMobileMenu([
-      { label: "Timer", icon: ICONS.clock, onclick: () => { /* timer is handled separately */ } },
+      // the timer control itself is hidden on narrow screens, so open its
+      // dropdown instead of duplicating the 5/8/10-minute choices here
+      { label: "Timer", icon: ICONS.clock, onclick: () => timerBtn.click() },
       { label: "Share", icon: ICONS.link, onclick: () => shareBtn.click() },
       { label: "Show Names", icon: ICONS.user, onclick: () => namesToggle.click() },
       { label: "Change Name", icon: ICONS.pencil, onclick: () => showNameModal() },
@@ -988,7 +995,9 @@ function buildColumn(col) {
       });
       const idx = state.notes.findIndex((n) => n.id === tempId);
       if (idx >= 0) state.notes[idx] = note;
-      else state.notes.push(note); // a sync replaced the list while we posted
+      // a sync may have swapped the list out while we were posting; that list
+      // already carries the server copy, so only append when it is truly absent
+      else if (!state.notes.some((n) => n.id === note.id)) state.notes.push(note);
       renderNotes();
     } catch {
       state.notes = state.notes.filter((n) => n.id !== tempId);
@@ -1143,7 +1152,9 @@ function showDragMergeConfirm(droppedNote, targetNote) {
       const res = await api(`/api/boards/${state.board.id}/merge`, { method: "POST", body: { ids: [targetNote.id, droppedNote.id] } });
       const survivor = state.notes.find((n) => n.id === res.survivor_id);
       if (survivor) survivor.text = res.survivor_text;
-      state.notes = state.notes.filter((n) => n.id === res.survivor_id);
+      // drop only the absorbed note — keeping just the survivor here would blank
+      // the rest of the board until the next sync lands
+      state.notes = state.notes.filter((n) => n.id !== droppedNote.id);
       renderNotes();
       toast("Notes merged successfully");
     } catch (err) {
@@ -1208,8 +1219,6 @@ function noteCard(note) {
   const editBtn = h("button", { class: "tool-btn edit", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
     h("span", { html: ICONS.pencil }));
 
-  const mergeCheck = h("button", { class: "merge-check", onclick: (e) => { e.stopPropagation(); toggleMergeId(note.id); } }, h("span", { html: ICONS.check }));
-
   // drag grip: anyone can move any note (drag is open by design)
   const grip = h("button", { class: "drag-grip", "data-tip": "Drag to move this note", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
   grip.addEventListener("pointerdown", (e) => {
@@ -1241,7 +1250,7 @@ function noteCard(note) {
     textEl,
     h("div", { class: "note-foot" },
       store.showNames ? author : null,
-      h("span", { class: "note-tools" }, voteBtn, mergeCheck, editBtn, delBtn)),
+      h("span", { class: "note-tools" }, voteBtn, editBtn, delBtn)),
   );
   delete note._entering;
   return card;
@@ -1441,9 +1450,13 @@ function showNameModal() {
   function save() {
     store.name = input.value;
     overlay.remove();
-    renderBoardShell();   // rebuilds DOM — columns lose the blur class
-    applyTimerState();    // re-apply blur based on current timer state
-    renderNotes();
+    // only rebuild the board if we are still on one — otherwise this would draw
+    // a board over whatever page the user navigated to
+    if (state.route.name === "board" && state.board) {
+      renderBoardShell();   // rebuilds DOM — columns lose the blur class
+      applyTimerState();    // re-apply blur based on current timer state
+      renderNotes();
+    }
     if (!store.name) toast("You can stay anonymous — that's fine too");
   }
   const overlay = h("div", { class: "overlay name-overlay", onclick: (e) => { if (e.target === overlay && store.name) overlay.remove(); } },
@@ -1518,45 +1531,72 @@ async function fetchTeamExportData(teamId) {
   return api(`/api/teams/${teamId}/export`);
 }
 
+const EXPORT_COLUMN_LABELS = { went_well: "Went Well", to_improve: "To Improve", actions: "Actions" };
+
 function generateCSV(data) {
-  const { team, boards } = data;
-  const rows = [["Board", "Column", "Text", "Author", "Votes", "Created At"]];
+  const { boards } = data;
+  // RFC 4180 minimal quoting: only cells containing a delimiter, quote or
+  // newline get wrapped, so vote counts stay numeric in Excel
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [["Board", "Column", "Text", "Author", "Votes", "Created At"].join(",")];
 
   for (const board of boards) {
     for (const note of board.notes) {
-      const columnLabel = note.column_key === "went_well" ? "Went Well"
-        : note.column_key === "to_improve" ? "To Improve" : "Actions";
-      const createdAt = new Date(note.created_at).toLocaleDateString();
-      rows.push([
+      lines.push([
         board.title,
-        columnLabel,
-        note.text.replace(/"/g, '""'),
+        EXPORT_COLUMN_LABELS[note.column_key] || note.column_key,
+        note.text,
         note.author || "",
         note.vote_count,
-        createdAt
-      ]);
+        new Date(note.created_at).toLocaleDateString(),
+      ].map(esc).join(","));
     }
   }
 
-  return rows.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+  // without the BOM Excel reads the file in the local codepage and mangles
+  // every non-ASCII note
+  return "\uFEFF" + lines.join("\r\n");
+}
+
+// Excel rejects duplicate sheet names (case-insensitively) and caps them at 31
+// characters. Two boards created on the same day share the app's date-based
+// default title, so collisions are the normal case, not an edge case.
+function uniqueSheetName(title, used) {
+  const base = String(title || "")
+    .replace(/[\\/*?:[\]]/g, "")
+    .replace(/^'+|'+$/g, "")
+    .trim()
+    .slice(0, 31) || "Board";
+  let name = base;
+  for (let n = 2; used.has(name.toLowerCase()); n++) {
+    const suffix = ` (${n})`;
+    name = base.slice(0, 31 - suffix.length) + suffix;
+  }
+  used.add(name.toLowerCase());
+  return name;
 }
 
 function generateExcel(data) {
-  const { team, boards } = data;
+  const { boards } = data;
   const wb = XLSX.utils.book_new();
+  const usedNames = new Set();
 
   for (const board of boards) {
     const rows = [["Column", "Text", "Author", "Votes", "Created At"]];
     for (const note of board.notes) {
-      const columnLabel = note.column_key === "went_well" ? "Went Well"
-        : note.column_key === "to_improve" ? "To Improve" : "Actions";
-      const createdAt = new Date(note.created_at).toLocaleDateString();
-      rows.push([columnLabel, note.text, note.author || "", note.vote_count, createdAt]);
+      rows.push([
+        EXPORT_COLUMN_LABELS[note.column_key] || note.column_key,
+        note.text,
+        note.author || "",
+        note.vote_count,
+        new Date(note.created_at).toLocaleDateString(),
+      ]);
     }
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    // Sheet name max 31 chars, no special chars
-    const sheetName = board.title.replace(/[\\/*?:\[\]]/g, "").slice(0, 31) || "Board";
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(board.title, usedNames));
   }
 
   return XLSX.write(wb, { bookType: "xlsx", type: "array" });
@@ -1568,7 +1608,7 @@ function generateExcel(data) {
 function buildPrintHTML(data) {
   const { team, boards } = data;
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const columnLabels = { went_well: "Went Well", to_improve: "To Improve", actions: "Actions" };
+  const columnLabels = EXPORT_COLUMN_LABELS;
   const columns = ["went_well", "to_improve", "actions"];
 
   const boardsHTML = boards.map((board) => {
