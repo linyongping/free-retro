@@ -1,8 +1,9 @@
-name: Test and deploy
+name: Tests
 
-# Tests run on every pull request; a push to main additionally deploys, and
-# `npm run deploy` stamps a build id into public/app.js so the footer label
-# always identifies the running code.
+# Deploys run through Cloudflare's Git integration on push, not here. These
+# tests therefore do not gate a deploy: a push to main ships whether they pass
+# or not. They are here to tell you when main is broken, so treat a failure as
+# "fix forward" rather than "the deploy was blocked".
 on:
   push:
     branches: [main]
@@ -13,15 +14,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: false
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # never let a first-run telemetry prompt stall the job
   WRANGLER_SEND_METRICS: "false"
 
 jobs:
-  test:
+  api:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -31,8 +32,8 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # The suite exercises the real Worker over HTTP, so it needs a local D1
-      # with the schema applied and a passcode configured — the auth test
+      # The suite exercises the real Worker over HTTP against a local D1, so it
+      # needs the schema applied and a passcode configured — the auth test
       # asserts that an unauthenticated request is rejected, which only holds
       # when a passcode is set.
       - name: Prepare local D1 and passcode
@@ -58,25 +59,3 @@ jobs:
       - name: Show dev server log on failure
         if: failure()
         run: cat /tmp/wrangler-dev.log
-
-  deploy:
-    needs: test
-    # never deploy a pull request, and never deploy a non-main ref
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-
-      # Stamps the build id, deploys, then restores public/app.js.
-      # Requires repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
-      # Worker secrets such as SITE_PASSCODE live in Cloudflare and are untouched.
-      - name: Deploy
-        run: npm run deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

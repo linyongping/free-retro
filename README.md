@@ -69,23 +69,28 @@ npm run deploy
 
 `npm run deploy` stamps a build id (`<YYMMDD>.<short sha>`, `+dirty` when the
 tree has uncommitted changes) into `public/app.js` for the duration of the
-deploy, then restores the file. The home footer shows it, and clicking it
-compares the running build against the deployed one — so a browser sitting on
-a cached build is visible instead of looking like a fix that never shipped.
-Running `wrangler deploy` directly skips the stamp and the footer reads `dev`.
+deploy, then restores the file. The home footer shows it, and a tab that has
+been open across a deploy gets a "new version is live — reload" pill when you
+return to it. Running `wrangler deploy` directly skips the stamp and the footer
+reads `dev`.
 
-### Deploying from CI
+### Deploying on push (Cloudflare Git integration)
 
-`.github/workflows/ci.yml` runs the API tests on every pull request, and on a
-push to `main` deploys once they pass. It needs two repository secrets:
+The Worker is connected to this repository in the Cloudflare dashboard, so a
+push to `main` builds and deploys automatically. **Set the deploy command to
+`npm run deploy`** rather than `npx wrangler deploy`, otherwise the build id is
+never stamped and the footer shows `dev` in production.
 
-| Secret | Notes |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | Workers Scripts:Edit, D1:Edit, Workers KV/Durable Objects as prompted |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers overview, right sidebar |
+If the build image has no `git`, the stamp degrades to a date-only id
+(`260910.local`) instead of failing — it still changes daily, but no longer
+identifies the commit.
 
 Worker secrets (`SITE_PASSCODE`) are stored in Cloudflare and are not touched
 by a deploy.
+
+`.github/workflows/ci.yml` runs the API tests on pull requests and pushes. It
+does **not** deploy, and because Cloudflare deploys on push independently, a
+failing test does not block a release — it just tells you `main` is broken.
 
 ## Observability
 
