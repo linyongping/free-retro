@@ -220,6 +220,7 @@ async function route() {
   const hash = location.hash || "#/";
   if (!hash.startsWith("#/b/")) {
     closeBoardWS();
+    resetBoard404();
     // a name prompt opened for a board must not follow the user to another page
     document.querySelector(".overlay.name-overlay")?.remove();
   }
@@ -883,6 +884,7 @@ setInterval(() => {
 // ---------- board ----------
 async function loadBoard(id, seq = routeSeq) {
   state.titleEditing = false;
+  resetBoard404(); // a fresh navigation starts with a clean slate
   $app.replaceChildren(h("div", { class: "board-page" }, h("div", { style: "padding:40px;text-align:center;font-family:var(--font-hand);font-size:20px;color:var(--ink-soft)" }, "Unrolling the paper…")));
   let data;
   try {
@@ -1448,12 +1450,25 @@ async function doDelete(note, card) {
 
 // ---------- polling sync ----------
 // ---------- live sync: websocket push (board room), lazy polling as fallback ----------
+// A lone 404 is not proof the board is gone — a proxy can blip, and so can a dev
+// server recompiling mid-fetch. Confirm with one quick retry before treating it
+// as deleted and throwing the reader out of the board.
+let board404Streak = 0;
+let board404Retry = null;
+
+function resetBoard404() {
+  board404Streak = 0;
+  clearTimeout(board404Retry);
+  board404Retry = null;
+}
+
 async function refreshBoard() {
   if (state.route.name !== "board" || !state.board) return;
   if (state.titleEditing || dragInProgress || document.hidden) return;
   try {
     const data = await api(`/api/boards/${state.board.id}?voter=${encodeURIComponent(store.voter)}`);
     state.pollFailures = 0;
+    resetBoard404(); // a good read settles it: the board is still there
     const before = JSON.stringify(state.notes.map(({ id, text, vote_count, voted, author, column_key, sort_order, updated_at }) => [id, text, vote_count, voted, author, column_key, sort_order, updated_at]));
     const after = JSON.stringify(data.notes.map(({ id, text, vote_count, voted, author, column_key, sort_order, updated_at }) => [id, text, vote_count, voted, author, column_key, sort_order, updated_at]));
     // Swap the array only when something actually changed. Rendered cards hold
@@ -1480,8 +1495,19 @@ async function refreshBoard() {
     }
   } catch (err) {
     if (err && err.status === 404) {
-      toast("This board was deleted");
-      location.hash = "#/";
+      board404Streak++;
+      if (board404Streak >= 2) {
+        resetBoard404();
+        toast("This board was deleted");
+        location.hash = "#/";
+        return;
+      }
+      // Re-check on our own schedule: if the board is genuinely gone there may be
+      // no further pushes to wait for, and the reader would sit on a dead page.
+      clearTimeout(board404Retry);
+      board404Retry = setTimeout(() => {
+        if (state.route.name === "board" && state.board) refreshBoard();
+      }, 1200);
       return;
     }
     state.pollFailures++;
