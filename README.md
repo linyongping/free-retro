@@ -77,9 +77,17 @@ reads `dev`.
 ### Deploying on push (Cloudflare Git integration)
 
 The Worker is connected to this repository in the Cloudflare dashboard, so a
-push to `main` builds and deploys automatically. **Set the deploy command to
-`npm run deploy`** rather than `npx wrangler deploy`, otherwise the build id is
-never stamped and the footer shows `dev` in production.
+push to `main` builds and deploys automatically.
+
+Set Cloudflare's **build command** to `npm run stamp`, and leave the deploy
+command at its default (`npx wrangler deploy`). `npm run stamp` writes the build
+id into `public/app.js` and leaves it there, so the file Cloudflare uploads
+carries the stamp.
+
+Do **not** put `npm run deploy` in the build command. That variant restores
+`public/app.js` when it finishes, so Cloudflare would then upload the restored —
+and therefore unstamped — file: production reads `dev` while every build log
+looks correct.
 
 If the build image has no `git`, the stamp degrades to a date-only id
 (`260910.local`) instead of failing — it still changes daily, but no longer
