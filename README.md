@@ -77,14 +77,19 @@ reads `dev`.
 ### Deploying on push (Cloudflare Git integration)
 
 The Worker is connected to this repository in the Cloudflare dashboard, so a
-push to `main` builds and deploys automatically.
+push to `main` builds and deploys automatically. Two configurations stamp the
+build id — either is fine, pick one:
 
-Set Cloudflare's **build command** to `npm run stamp`, and leave the deploy
-command at its default (`npx wrangler deploy`). `npm run stamp` writes the build
-id into `public/app.js` and leaves it there, so the file Cloudflare uploads
-carries the stamp.
+| | Build command | Deploy command |
+|---|---|---|
+| **A** (defaults mostly untouched) | `npm run stamp` | leave as `npx wrangler deploy` |
+| **B** | leave empty | `npm run deploy` |
 
-Do **not** put `npm run deploy` in the build command. That variant restores
+`npm run stamp` writes the id into `public/app.js` and leaves it there, so the
+file Cloudflare uploads carries the stamp. `npm run deploy` does the same but
+then deploys and restores the file itself, so it belongs in the deploy step.
+
+Do **not** put `npm run deploy` in the *build* command. It restores
 `public/app.js` when it finishes, so Cloudflare would then upload the restored —
 and therefore unstamped — file: production reads `dev` while every build log
 looks correct.
