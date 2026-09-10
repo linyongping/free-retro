@@ -318,6 +318,53 @@ input, textarea { font: inherit; color: inherit; }
 .ver-chip:disabled { cursor: default; }
 .ver-chip[disabled] { opacity: 0.7; }
 
+/* "a newer build is live" nudge for a tab left open through a deploy. Sits above
+   the toast (bottom 28px) so a transient message never covers it.
+   Deliberately not animated: it exists to be noticed, so it must render at full
+   opacity in any environment, and a transform animation would also fight the
+   translateX that centres it. */
+.update-pill {
+  position: fixed;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100vw - 24px);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 5px 3px 15px;
+  box-shadow: 0 10px 26px -10px rgba(40, 30, 8, 0.55);
+  z-index: 78;
+}
+.update-reload {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-hand);
+  font-size: 15.5px;
+  color: var(--ink);
+  padding: 5px 2px;
+  white-space: nowrap;
+}
+.update-reload:hover { color: var(--accent); }
+.update-dismiss {
+  flex: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-family: var(--font-ui);
+  font-size: 17px;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+.update-dismiss:hover { background: rgba(63, 56, 38, 0.09); color: var(--ink); }
+
 /* ============================================================
    Admin — manage boards
    ============================================================ */

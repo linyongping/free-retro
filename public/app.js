@@ -41,40 +41,81 @@ const ICONS = {
 };
 
 // ---------- build version ----------
-// Single source of truth for the running build. The home footer shows it, and
-// clicking it compares against the deployed script, so a stale cache is
-// obvious instead of looking like a missing fix. scripts/stamp-deploy.mjs
-// swaps this for a build id during `npm run deploy`; "dev" means the file ran
-// straight from the working tree (wrangler dev, or a raw `wrangler deploy`).
+// Single source of truth for the running build. scripts/stamp-deploy.mjs swaps
+// this for a build id during `npm run deploy`; "dev" means the file ran straight
+// from the working tree (wrangler dev, or a raw `wrangler deploy`).
 const APP_VERSION = "dev";
+
+// The shell is network-first, so refreshing always lands on the current build.
+// A tab that is already open does not: it keeps running the script it loaded
+// with, which for a retro board can mean hours. These checks exist for that
+// case, not for the refresh path.
+const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000; // don't re-fetch on every tab flick
+let lastUpdateCheck = 0;
+let updateDismissed = false;
+
+function parseVersion(source) {
+  // anchored to a whole line so it cannot match the regex literal below
+  return (source.match(/^const APP_VERSION = "([^"]+)";$/m) || [])[1] || null;
+}
+
+// { ok: true, newer: <id> | null } — newer is set only when it differs from us.
+// ok:false means we could not read the deployed build (offline, blocked).
+async function checkDeployedBuild() {
+  lastUpdateCheck = Date.now();
+  try {
+    const res = await fetch(`/app.js?build=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return { ok: false };
+    const deployed = parseVersion(await res.text());
+    if (!deployed) return { ok: false };
+    return { ok: true, newer: deployed === APP_VERSION ? null : deployed };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// A quiet nudge that stays put until acted on, unlike a toast that disappears.
+function showUpdatePill(version) {
+  if (updateDismissed || document.getElementById("update-pill")) return;
+  const pill = h("div", { class: "update-pill", id: "update-pill" });
+  pill.append(
+    h("button", { class: "update-reload", onclick: () => location.reload() },
+      `New version ${version} is live — reload`),
+    h("button", {
+      class: "update-dismiss", "aria-label": "Dismiss this notice", title: "Dismiss",
+      onclick: () => { updateDismissed = true; pill.remove(); },
+    }, "×"),
+  );
+  document.body.append(pill);
+}
 
 async function checkForUpdate(btn) {
   btn.disabled = true;
   btn.textContent = "checking…";
-  try {
-    const res = await fetch(`/app.js?build=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) throw new Error("fetch failed");
-    const deployed = ((await res.text()).match(/const APP_VERSION = "([^"]+)"/) || [])[1];
-    btn.disabled = false;
-    if (!deployed) {
-      btn.textContent = APP_VERSION;
-      toast(`Running ${APP_VERSION} — couldn't read the deployed build`);
-    } else if (deployed === APP_VERSION) {
-      btn.textContent = APP_VERSION;
-      toast(APP_VERSION === "dev"
-        ? "Unstamped build (dev) — deploy with `npm run deploy` to stamp it"
-        : `Latest build — you're on ${APP_VERSION}`);
-    } else {
-      btn.textContent = `${APP_VERSION} → ${deployed}`;
-      toast(`New build ${deployed} is live — reloading gets you there`);
-      btn.onclick = () => location.reload();
-    }
-  } catch {
-    btn.disabled = false;
-    btn.textContent = APP_VERSION;
+  const res = await checkDeployedBuild();
+  btn.disabled = false;
+  btn.textContent = res.ok && res.newer ? `${APP_VERSION} → ${res.newer}` : APP_VERSION;
+  if (!res.ok) {
     toast("Couldn't check for updates — are you offline?");
+  } else if (res.newer) {
+    toast(`New build ${res.newer} is live`);
+    showUpdatePill(res.newer);
+  } else {
+    toast(APP_VERSION === "dev"
+      ? "Unstamped build (dev) — deploy with `npm run deploy` to stamp it"
+      : `Latest build — you're on ${APP_VERSION}`);
   }
 }
+
+// Coming back to a long-lived tab is when a deploy is most likely to have
+// landed, so that is when we look — throttled to keep it cheap.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || updateDismissed) return;
+  if (Date.now() - lastUpdateCheck < UPDATE_CHECK_INTERVAL) return;
+  checkDeployedBuild().then((res) => {
+    if (res.ok && res.newer) showUpdatePill(res.newer);
+  });
+});
 
 // ---------- identity & palette ----------
 const store = {
