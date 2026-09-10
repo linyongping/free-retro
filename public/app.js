@@ -727,7 +727,10 @@ function updateTimerButton() {
 
 function applyTimerState() {
   const cols = $app.querySelector(".columns");
-  if (cols) cols.classList.toggle("blurred", !!state.timerEndsAt);
+  // a sync tick can land after the user moved to a missing board (or any
+  // non-board page); there is no board DOM to blur or hang a banner off
+  if (!cols) return;
+  cols.classList.toggle("blurred", !!state.timerEndsAt);
 
   let banner = $app.querySelector(".timer-banner");
   if (state.timerEndsAt) {
