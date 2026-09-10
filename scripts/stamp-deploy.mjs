@@ -32,7 +32,10 @@ function buildId() {
   ].join("");
   const sha = git(["rev-parse", "--short", "HEAD"]);
   if (!sha) return `${day}.local`;
-  return `${day}.${sha}${git(["status", "--porcelain"]) ? "+dirty" : ""}`;
+  // only tracked-file edits mark the build dirty; untracked scratch files (editor
+  // state, tooling dirs) are not part of the deploy and would mark it forever
+  const edits = git(["status", "--porcelain", "--untracked-files=no"]);
+  return `${day}.${sha}${edits ? "+dirty" : ""}`;
 }
 
 const id = buildId();
