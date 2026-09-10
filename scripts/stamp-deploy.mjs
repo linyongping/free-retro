@@ -32,18 +32,27 @@ function git(args) {
 }
 
 function buildId() {
-  const now = new Date();
-  const day = [
-    String(now.getFullYear()).slice(2),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("");
+  // Date the commit, not the build. A Cloudflare build host runs UTC, so "now"
+  // there is yesterday for anyone ahead of UTC and a fresh deploy reads as a
+  // stale one. The commit's own date also makes the id a pure function of the
+  // code: rebuilding the same commit yields the same id on any machine.
+  const committed = git(["show", "-s", "--format=%cs", "HEAD"]); // YYYY-MM-DD
+  const day = committed ? committed.slice(2).replace(/-/g, "") : utcToday();
   const sha = git(["rev-parse", "--short", "HEAD"]);
   if (!sha) return `${day}.local`;
   // only tracked-file edits mark the build dirty; untracked scratch files (editor
   // state, tooling dirs) are not part of the deploy and would mark it forever
   const edits = git(["status", "--porcelain", "--untracked-files=no"]);
   return `${day}.${sha}${edits ? "+dirty" : ""}`;
+}
+
+function utcToday() {
+  const d = new Date();
+  return [
+    String(d.getUTCFullYear()).slice(2),
+    String(d.getUTCMonth() + 1).padStart(2, "0"),
+    String(d.getUTCDate()).padStart(2, "0"),
+  ].join("");
 }
 
 const id = buildId();
