@@ -33,12 +33,11 @@ jobs:
       - run: npm ci
 
       # The suite exercises the real Worker over HTTP against a local D1, so it
-      # needs the schema applied and a passcode configured — the auth test
-      # asserts that an unauthenticated request is rejected, which only holds
-      # when a passcode is set.
-      - name: Prepare local D1 and passcode
+      # needs the schema applied. Sign-in uses the dev-login endpoint, which the
+      # Worker only exposes when ALLOW_DEV_LOGIN=1.
+      - name: Prepare local D1, session secret and dev login
         run: |
-          echo "SITE_PASSCODE=ci-passcode" > .dev.vars
+          printf 'SESSION_SECRET=ci-secret\nALLOW_DEV_LOGIN=1\n' > .dev.vars
           npx wrangler d1 execute free-retro-db --local --file=./schema.sql
 
       - name: Start the dev server
@@ -54,7 +53,7 @@ jobs:
           echo "dev server did not come up:"; cat /tmp/wrangler-dev.log; exit 1
 
       - name: Run API tests
-        run: TEST_BASE=http://localhost:8787 TEST_PASSCODE=ci-passcode node --test test/api.test.mjs
+        run: TEST_BASE=http://localhost:8787 node --test test/api.test.mjs
 
       - name: Show dev server log on failure
         if: failure()

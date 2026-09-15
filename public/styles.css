@@ -962,205 +962,33 @@ input, textarea { font: inherit; color: inherit; }
 .team-card .b-title { font-family: var(--font-marker); font-weight: 600; font-size: 27px; }
 .team-create { margin-bottom: 46px; }
 
-/* ---------- site passcode gate ---------- */
-.gate { z-index: 80; }
-.gate-card { text-align: center; }
-.gate-lock { display: inline-flex; color: var(--accent); margin-bottom: 4px; }
-.gate-lock svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.gate-err { color: #b3361e !important; font-weight: 600; margin: 10px 0 0 !important; }
+/* ---------- accounts, membership and board visibility ---------- */
+.signin-card { gap: 10px; display: flex; flex-direction: column; text-align: left; }
+.signin-card h3 { margin: 0; }
+.signin-card p { margin: 0; }
+.signin-note { color: var(--ink-soft); font-size: 13.5px; line-height: 1.45; }
+.signin-label { font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+.signin-provider { justify-content: center; text-decoration: none; }
+.signin-dev { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--ink-faint); padding-top: 12px; margin-top: 2px; }
+.signin-dev input { width: 100%; }
 
-/* ---------- team danger zone ---------- */
-.danger-zone {
-  margin-top: 44px;
-  border: 1.5px solid rgba(179, 54, 30, 0.35);
-  background: rgba(179, 54, 30, 0.05);
-  border-radius: 4px;
-  padding: 16px 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.danger-zone .dz-text { flex: 1; min-width: 0; }
-.danger-zone h3 {
-  margin: 0 0 2px;
-  font-family: var(--font-marker);
-  font-weight: 600;
-  font-size: 25px;
-  line-height: 1.1;
-  color: #b3361e;
-}
-.danger-zone p { margin: 0; color: var(--ink-soft); font-size: 13px; }
-@media (max-width: 640px) {
-  .danger-zone { flex-wrap: wrap; }
-}
+/* a board the viewer may read but not rename */
+.board-title.readonly { cursor: default; }
+.board-title.readonly:hover { background: none; }
 
-/* ---------- drag to move ---------- */
-.drag-grip {
-  position: absolute;
-  left: 6px;
-  top: -9px;
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.75);
-  color: rgba(63, 56, 38, 0.55);
-  cursor: grab;
-  touch-action: none; /* pointer dragging, not page scroll */
-  box-shadow: 0 1px 3px rgba(84, 62, 18, 0.25);
-  z-index: 3;
-}
-.drag-grip:hover { color: var(--ink); background: #fff; }
-.drag-grip:active { cursor: grabbing; }
-.drag-grip svg { width: 13px; height: 13px; fill: currentColor; }
-.drag-ghost {
-  position: fixed;
-  z-index: 70;
-  pointer-events: none;
-  opacity: 0.95;
-  box-shadow: 0 18px 40px -12px rgba(84, 62, 18, 0.55);
-  transform: rotate(1.5deg);
-  transition: none;
-}
-.note.drag-source { opacity: 0.35; }
-.drop-indicator {
-  height: 0;
-  border-top: 3px dashed var(--accent);
-  margin: 6px 4px;
-  border-radius: 2px;
-  animation: pop-in 0.15s ease;
-}
+.vis-chip { font-size: 13px; }
+.vis-chip.is-public { border-color: #d9b25f; }
 
-/* names visibility toggle */
-.names-toggle.on { background: var(--ink); color: #fffdf4; border-color: var(--ink); }
-.names-toggle.on:hover { background: #52492f; }
-
-/* icon/text vertical alignment: inline svg sits on the text baseline which
-   pushes it above center inside flex buttons — render icons as blocks */
-button svg,
-a.back svg,
-.gate-lock svg,
-.timer-banner .t-icon svg { display: block; }
-
-/* ---------- tooltips ---------- */
-[data-tip] { position: relative; }
-[data-tip]:hover::after,
-[data-tip]:focus-visible::after {
-  content: attr(data-tip);
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--ink);
-  color: #fffdf4;
-  font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  padding: 6px 11px;
-  border-radius: 7px;
-  white-space: nowrap;
-  z-index: 75;
-  box-shadow: 0 8px 20px -8px rgba(40, 30, 8, 0.55);
-  pointer-events: none;
-  animation: tip-in 0.12s ease;
-}
-[data-tip]:hover::before,
-[data-tip]:focus-visible::before {
-  content: "";
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 9px;
-  height: 9px;
-  background: var(--ink);
-  z-index: 76;
-  pointer-events: none;
-}
-/* right-edge buttons: align the bubble to the button's right edge */
-[data-tip-align="right"]:hover::after,
-[data-tip-align="right"]:focus-visible::after { left: auto; right: 0; transform: none; }
-[data-tip-align="right"]:hover::before,
-[data-tip-align="right"]:focus-visible::before { left: auto; right: 12px; transform: rotate(45deg); }
-@keyframes tip-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-3px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-[data-tip-align="right"]:hover::after,
-[data-tip-align="right"]:focus-visible::after { animation: none; }
-
-/* ---------- merge (drag a note onto another to merge; see .note.merge-target) ---------- */
-
-/* merge overlay */
-.merge-overlay {
-  position: fixed; inset: 0; background: rgba(63,56,38,0.25);
-  display: flex; align-items: center; justify-content: center; z-index: 80;
-}
-.merge-card {
-  background: var(--card); border-radius: 10px; padding: 22px 24px;
-  box-shadow: 0 18px 44px -12px rgba(40,30,8,.55); max-width: 420px; width: 92%;
-}
-.merge-card p { margin: 0 0 6px; }
-/* drop-target highlight when hovering over a card to merge into */
-.note.merge-target {
-  outline: 3px dashed var(--accent); outline-offset: 3px;
-  transform: rotate(0deg) scale(1.03);
-}
-.note.merge-target .note-text::after {
-  content: "Merge into this"; position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(201,85,61,.15); border-radius: 3px;
-  font-family: var(--font-hand); font-size: 17px; font-weight: 600; color: var(--accent);
-}
-
-/* export dialog */
-.export-dialog-card {
-  background: var(--card); border-radius: 10px; padding: 22px 24px;
-  box-shadow: 0 18px 44px -12px rgba(40,30,8,.55); max-width: 360px; width: 92%;
-  text-align: center;
-}
-.export-dialog-card h3 { margin: 0 0 8px; font-family: var(--font-hand); font-size: 22px; }
-.export-team-name { margin: 0 0 18px; color: var(--ink-soft); font-size: 14px; }
-.export-buttons { display: flex; gap: 10px; justify-content: center; margin-bottom: 16px; }
-.export-btn {
-  padding: 10px 24px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--card); font-family: var(--font-hand); font-size: 16px;
-  cursor: pointer; transition: all .15s;
-}
-.export-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.export-btn:disabled { opacity: .6; cursor: not-allowed; }
-.export-cancel {
-  padding: 6px 16px; border-radius: 6px; border: none;
-  background: transparent; color: var(--ink-soft); font-size: 13px;
-  cursor: pointer;
-}
-.export-cancel:hover { color: var(--ink); }
-
-/* mobile menu */
-.mobile-more { display: none; }
-.mobile-menu-card {
-  background: var(--card); border-radius: 12px; padding: 8px;
-  box-shadow: 0 18px 44px -12px rgba(40,30,8,.55); max-width: 280px; width: 85%;
-}
-.mobile-menu-list { display: flex; flex-direction: column; gap: 2px; }
-.mobile-menu-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 16px; border-radius: 8px; border: none;
-  background: transparent; width: 100%; text-align: left;
-  font-family: var(--font-hand); font-size: 17px; color: var(--ink);
-  cursor: pointer; transition: background 0.15s;
-}
-.mobile-menu-item:hover { background: rgba(255, 253, 244, 0.8); }
-.mobile-menu-icon { width: 20px; height: 20px; color: var(--ink-soft); }
-.mobile-menu-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.mobile-menu-cancel {
-  display: block; width: 100%; margin-top: 8px; padding: 10px;
-  border-radius: 8px; border: none; background: transparent;
-  font-size: 14px; color: var(--ink-soft); cursor: pointer;
-}
-.mobile-menu-cancel:hover { background: rgba(255, 253, 244, 0.8); color: var(--ink); }
-
-@media (max-width: 640px) {
-  .mobile-more { display: inline-flex; }
-  .mobile-action { display: none !important; }
-}
+.members-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.members-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--ink-faint); }
+.members-row.is-me { font-weight: 700; }
+.members-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.members-you { color: var(--ink-soft); font-weight: 600; font-size: 12px; }
+.members-badge { font-size: 11.5px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .4px; }
+.members-badge.admin { color: #a2703a; }
+.members-btn { padding: 3px 9px; font-size: 12.5px; }
+.members-btn.danger { color: #a2453a; }
+.members-add { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.members-add input { flex: 1; min-width: 0; }
+.members-role { padding: 7px 8px; border: 1px solid var(--ink-faint); border-radius: 8px; background: #fff; font: inherit; }
+.home-account { display: flex; justify-content: flex-end; padding: 16px 20px 0; }
