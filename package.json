@@ -9,8 +9,6 @@
     "stamp": "node scripts/stamp-deploy.mjs --stamp-only",
     "db:schema:local": "wrangler d1 execute free-retro-db --local --file=./schema.sql",
     "db:schema:remote": "wrangler d1 execute free-retro-db --remote --file=./schema.sql",
-    "db:migrate:local": "wrangler d1 execute free-retro-db --local --file=./migrations/0001-user-management.sql",
-    "db:migrate:remote": "wrangler d1 execute free-retro-db --remote --file=./migrations/0001-user-management.sql",
     "test": "node --test"
   },
   "devDependencies": {

@@ -171,275 +171,19 @@ function toast(msg) {
 }
 
 // ---------- api ----------
-// The status codes mean different things and the UI must not conflate them:
-//   401 not signed in        → offer sign-in, keep the page
-//   403 readable but not allowed → say so, keep the page
-//   404 missing, or not readable → the caller decides (usually a "not found" page)
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     headers: { "content-type": "application/json" },
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !path.startsWith("/api/auth/")) {
-    session.user = null;
-    showSignIn();
-    throw Object.assign(new Error(data.error || "unauthorized"), { status: 401, data });
+    showGate(); // session expired or revoked — re-lock the UI
+    throw Object.assign(new Error("unauthorized"), { status: 401 });
   }
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status, data });
   return data;
-}
-
-// ---------- session ----------
-// Who we are, according to the server. Capabilities for a board come with the
-// board payload; this is only the account-level view.
-const session = {
-  user: null,
-  teams: [],
-  providers: [],
-  devLogin: false,
-  get signedIn() { return !!this.user; },
-  // role in a team, or null when not a member
-  roleIn(teamId) { return this.teams.find((t) => t.id === teamId)?.role ?? null; },
-  isAdminOf(teamId) { return this.roleIn(teamId) === "admin"; },
-};
-
-async function loadSession() {
-  try {
-    const me = await fetch("/api/me").then((r) => r.json());
-    session.user = me.user;
-    session.teams = me.teams || [];
-    session.providers = me.providers || [];
-    session.devLogin = !!me.dev_login;
-  } catch {
-    session.user = null;
-  }
-  return session;
-}
-
-function signInUrl(returnTo = location.hash || "/") {
-  const provider = session.providers[0]?.id || "google";
-  return `/api/auth/login/${provider}?return=${encodeURIComponent(returnTo)}`;
-}
-
-async function signOut() {
-  await fetch("/api/auth/logout", { method: "POST" });
-  session.user = null;
-  session.teams = [];
-  location.hash = "#/";
-  await loadSession();
-  route();
-}
-
-// Sign-in sheet. Real providers redirect; local development gets a name/email box
-// because registering OAuth apps to work on the UI is not reasonable.
-function showSignIn() {
-  if (document.getElementById("signin")) return;
-  const actions = [];
-
-  for (const p of session.providers) {
-    actions.push(
-      h("a", { class: "btn accent signin-provider", href: signInUrl() },
-        `Continue with ${p.label}`)
-    );
-  }
-
-  if (session.devLogin) {
-    const email = h("input", { type: "email", placeholder: "you@example.com", "aria-label": "Email" });
-    const name = h("input", { type: "text", maxlength: "40", placeholder: "Your name", "aria-label": "Name" });
-    const go = h("button", { class: "btn accent", onclick: submitDev }, "Dev sign-in");
-    async function submitDev() {
-      go.disabled = true;
-      try {
-        const res = await fetch("/api/auth/dev-login", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email: email.value.trim(), name: name.value.trim() }),
-        });
-        if (!res.ok) throw new Error("failed");
-        document.getElementById("signin")?.remove();
-        await loadSession();
-        route();
-      } catch {
-        toast("Dev sign-in failed");
-        go.disabled = false;
-      }
-    }
-    actions.push(h("div", { class: "signin-dev" },
-      h("p", { class: "signin-note" }, "Local development only — this box does not exist in production."),
-      email, name, go));
-  }
-
-  if (!actions.length) {
-    actions.push(h("p", { class: "signin-note" },
-      "No sign-in provider is configured. Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (or the GitHub pair) and SESSION_SECRET as Worker secrets."));
-  }
-
-  document.body.append(
-    h("div", { class: "overlay", id: "signin", onclick: (e) => { if (e.target.id === "signin") close(); } },
-      h("div", { class: "name-card signin-card" },
-        h("h3", {}, "Sign in"),
-        h("p", {}, "Sign in to create teams and boards. You can still read and write on a shared board link without an account."),
-        ...actions,
-        h("button", { class: "btn ghost", onclick: close }, "Not now"),
-      ),
-    ),
-  );
-  function close() { document.getElementById("signin")?.remove(); }
-}
-
-// Account sheet: the display name override (rule 19) and sign-out. Changing the
-// display name is cosmetic — the identity behind a note never changes.
-function showAccountMenu() {
-  if (document.getElementById("account")) return;
-  const nameInput = h("input", { type: "text", maxlength: "40", "aria-label": "Display name", value: session.user.name || "" });
-  const save = h("button", { class: "btn accent", onclick: async () => {
-    const display_name = nameInput.value.trim();
-    if (!display_name) return;
-    save.disabled = true;
-    try {
-      await api("/api/me", { method: "PATCH", body: { display_name } });
-      session.user.name = display_name;
-      document.getElementById("account")?.remove();
-      toast("Display name updated");
-      route();
-    } catch {
-      toast("Couldn't update your name");
-      save.disabled = false;
-    }
-  } }, "Save");
-  document.body.append(
-    h("div", { class: "overlay", id: "account", onclick: (e) => { if (e.target.id === "account") document.getElementById("account").remove(); } },
-      h("div", { class: "name-card signin-card" },
-        h("h3", {}, "Your account"),
-        h("p", { class: "signin-note" }, session.user.email || ""),
-        h("label", { class: "signin-label" }, "Display name on notes"),
-        nameInput,
-        save,
-        h("button", { class: "btn ghost", onclick: () => { document.getElementById("account").remove(); signOut(); } }, "Sign out"),
-      ),
-    ),
-  );
-  nameInput.focus();
-}
-
-// Member roster. Admins can add by email, promote, demote and remove; members can
-// look. Every control here maps to a server rule that is enforced independently.
-async function showMembersDialog(teamId, isAdmin) {
-  document.getElementById("members")?.remove();
-  const list = h("div", { class: "members-list" }, h("p", { class: "signin-note" }, "Loading…"));
-  const overlay = h("div", { class: "overlay", id: "members" },
-    h("div", { class: "name-card signin-card" },
-      h("h3", {}, "Team members"),
-      list,
-      isAdmin ? buildAddRow() : h("p", { class: "signin-note" }, "Only team admins can change the roster."),
-      h("button", { class: "btn ghost", onclick: () => overlay.remove() }, "Close"),
-    ),
-  );
-  document.body.append(overlay);
-  await refresh();
-
-  function buildAddRow() {
-    const email = h("input", { type: "email", placeholder: "teammate@example.com", "aria-label": "Member email" });
-    const role = h("select", { class: "members-role" },
-      h("option", { value: "member" }, "Member"),
-      h("option", { value: "admin" }, "Admin"),
-    );
-    const add = h("button", { class: "btn accent", onclick: async () => {
-      const value = email.value.trim();
-      if (!value) return;
-      add.disabled = true;
-      try {
-        await api(`/api/teams/${teamId}/members`, { method: "POST", body: { email: value, role: role.value } });
-        email.value = "";
-        await refresh();
-        toast("Member added");
-      } catch (err) {
-        toast(err.status === 404 ? "No account with that email — they need to sign in once first" : "Couldn't add that member");
-      }
-      add.disabled = false;
-    } }, "Add");
-    return h("div", { class: "members-add" }, email, role, add);
-  }
-
-  async function refresh() {
-    let members = [];
-    try {
-      ({ members } = await api(`/api/teams/${teamId}/members`));
-    } catch {
-      list.replaceChildren(h("p", { class: "signin-note" }, "Couldn't load the roster"));
-      return;
-    }
-    const me = session.user?.id;
-    list.replaceChildren(...members.map((m) => {
-      const label = m.display_name || m.name || m.email || m.user_id;
-      const isLastAdmin = m.role === "admin" && members.filter((x) => x.role === "admin").length === 1;
-      const controls = [];
-      if (isAdmin) {
-        controls.push(h("button", {
-          class: "btn ghost members-btn",
-          onclick: async () => {
-            const role = m.role === "admin" ? "member" : "admin";
-            try {
-              await api(`/api/teams/${teamId}/members/${m.user_id}`, { method: "PATCH", body: { role } });
-              await refresh();
-            } catch (err) {
-              toast(err.data?.error === "last_admin" ? "A team needs at least one admin" : "Couldn't change that role");
-            }
-          },
-        }, m.role === "admin" ? "Make member" : "Make admin"));
-        controls.push(h("button", {
-          class: "btn ghost members-btn danger",
-          onclick: async () => {
-            try {
-              await api(`/api/teams/${teamId}/members/${m.user_id}`, { method: "DELETE" });
-              await refresh();
-            } catch (err) {
-              toast(err.data?.error === "last_admin" ? "A team needs at least one admin" : "Couldn't remove that member");
-            }
-          },
-        }, "Remove"));
-      }
-      return h("div", { class: "members-row" + (m.user_id === me ? " is-me" : "") },
-        h("span", { class: "avatar", style: `--av: hsl(${avatarHue(label)}, 70%, 72%)` }, initialsOf(label)),
-        h("span", { class: "members-name" }, label, m.user_id === me ? h("span", { class: "members-you" }, " you") : null),
-        h("span", { class: "members-badge" + (m.role === "admin" ? " admin" : "") }, isLastAdmin ? "admin · last one" : m.role),
-        ...controls,
-      );
-    }));
-  }
-}
-
-// Public / team-only switch. Widening exposure touches other people's notes, so
-// that direction asks first.
-function buildVisibilityChip() {
-  if (state.can.can_set_visibility === 0) return null;
-  const isPublic = state.board.visibility !== "team";
-  const btn = h("button", {
-    class: "btn ghost mobile-action vis-chip" + (isPublic ? " is-public" : ""),
-    "data-tip": isPublic
-      ? "Anyone with the link can read and write this board — click to make it team-only"
-      : "Only team members can read this board — click to make it public",
-    "data-tip-align": "right",
-    dataset: { label: isPublic ? "Make team-only" : "Make public" },
-    onclick: flip,
-  }, h("span", { html: isPublic ? ICONS.link : ICONS.lock }), isPublic ? "Public" : "Team only");
-
-  async function flip() {
-    const next = state.board.visibility === "team" ? "public" : "team";
-    if (next === "public" && !confirm(
-      "Make this board public?\n\nAnyone with the link will be able to read every note on it — including notes other people wrote — and can add their own.")) return;
-    try {
-      const res = await api(`/api/boards/${state.board.id}`, { method: "PATCH", body: { visibility: next } });
-      state.board = { ...state.board, ...res.board };
-      state.can.visibility = next;
-      renderBoardShell();
-      toast(next === "public" ? "Anyone with the link can now read this board" : "Now visible to team members only");
-    } catch (err) {
-      toast(err.status === 403 ? "Only the board owner or a team admin can change this" : "Couldn't change visibility");
-    }
-  }
-  return btn;
 }
 
 // ---------- app state ----------
@@ -452,7 +196,6 @@ const state = {
   pollFailures: 0,
   timerEndsAt: null,   // epoch ms (server clock), null = no timer
   serverOffset: 0,     // serverNow - clientNow, keeps countdown honest across devices
-  can: {},             // this viewer's capabilities on the open board
 };
 
 const COLUMNS = [
@@ -513,74 +256,49 @@ async function renderHome(seq = routeSeq) {
 
   const root = $app.firstChild;
   root.append(
-    h("div", { class: "home-account" },
-      session.signedIn
-        ? h("button", { class: "me-chip", onclick: () => showAccountMenu() },
-            h("span", { class: "avatar", style: `--av: hsl(${avatarHue(session.user.name || session.user.email)}, 70%, 72%)` },
-              initialsOf(session.user.name || session.user.email)),
-            session.user.name || session.user.email)
-        : h("button", { class: "btn ghost", onclick: () => showSignIn() }, "Sign in"),
-    ),
     h("div", { class: "hero" },
       h("h1", {}, "Free ", h("span", { class: "hl" }, "Retro")),
-      h("p", {}, session.signedIn
-        ? `Signed in as ${session.user.name || session.user.email}. Create a team, or open a board link someone shared.`
-        : "Tiny retrospective boards. Anyone with a board link can read it and add notes — sign in only to create teams and boards."),
+      h("p", {}, "Tiny retrospective boards. One link per team — share it, and everyone can run retros. No sign-up."),
     ),
   );
 
-  // create-team card — creating a team requires an account (rule 3: the creator
-  // becomes its first admin)
-  if (session.signedIn) {
-    const input = h("input", {
-      type: "text", maxlength: "60", placeholder: "e.g. Platform team",
-      "aria-label": "Team name",
-      onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) createBtn.click(); },
-    });
-    const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create team");
-    async function doCreate() {
-      const name = input.value.trim();
-      if (!name) { input.focus(); return; }
-      createBtn.disabled = true;
-      try {
-        const { team } = await api("/api/teams", { method: "POST", body: { name } });
-        await loadSession();
-        location.hash = `#/t/${team.id}`;
-      } catch (err) {
-        toast(err.status === 401 ? "Sign in first" : "Couldn't create the team — try again.");
-        createBtn.disabled = false;
-      }
+  // create-team card
+  const input = h("input", {
+    type: "text", maxlength: "60", placeholder: "e.g. Platform team",
+    "aria-label": "Team name",
+    onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) createBtn.click(); },
+  });
+  const createBtn = h("button", { class: "btn accent", onclick: doCreate }, "Create team");
+  async function doCreate() {
+    const name = input.value.trim();
+    if (!name) { input.focus(); return; }
+    createBtn.disabled = true;
+    try {
+      const { team } = await api("/api/teams", { method: "POST", body: { name } });
+      location.hash = `#/t/${team.id}`;
+    } catch {
+      toast("Couldn't create the team — try again.");
+      createBtn.disabled = false;
     }
-    root.append(
-      h("div", { class: "create-card" },
-        h("label", {}, "Create a team"),
-        h("div", { class: "create-row" }, input, createBtn),
-      ),
-    );
-  } else {
-    root.append(
-      h("div", { class: "create-card" },
-        h("label", {}, "Create a team"),
-        h("p", { class: "signin-note" }, "You need an account to create teams and boards. Board links keep working without one."),
-        h("div", { class: "create-row" }, h("button", { class: "btn accent", onclick: () => showSignIn() }, "Sign in")),
-      ),
-    );
   }
+  root.append(
+    h("div", { class: "create-card" },
+      h("label", {}, "Create a team"),
+      h("div", { class: "create-row" }, input, createBtn),
+    ),
+  );
 
   // teams grid
   const listWrap = h("div");
-  root.append(h("div", { class: "section-label", style: "margin-top:0" }, session.signedIn ? "Your teams" : "Teams"), listWrap);
+  root.append(h("div", { class: "section-label", style: "margin-top:0" }, "Your teams"), listWrap);
   try {
     const { teams } = await api("/api/teams");
     if (seq !== routeSeq) return; // a newer route took over while we fetched
     if (!teams.length) {
       listWrap.append(
         h("div", { class: "empty-hint" },
-          h("div", { class: "doodle" }, session.signedIn ? "No teams yet" : "Not signed in"),
-          h("p", {}, session.signedIn
-            ? "Create your first team above — each team gets its own board space and a shareable link."
-            : "Sign in to see the teams you belong to. A board link someone shared with you works without one."),
-          session.signedIn ? null : h("button", { class: "btn accent", onclick: () => showSignIn() }, "Sign in"),
+          h("div", { class: "doodle" }, "No teams yet"),
+          h("p", {}, "Create your first team above — each team gets its own board space and a shareable link."),
         ),
       );
     } else {
@@ -688,43 +406,27 @@ async function renderTeam(seq = routeSeq, teamId) {
     },
   }, h("span", { html: ICONS.link }), "Team link");
 
-  // Export and management are admin-only (rule 15); members keep the link button
-  // and the board list.
-  const isAdmin = session.isAdminOf(teamId);
-  const exportBtn = isAdmin ? h("button", {
+  const exportBtn = h("button", {
     class: "btn ghost mobile-action", "data-tip": "Export team data as CSV, Excel, or PDF", "data-tip-align": "right",
     onclick: () => showExportDialog(teamId, team.name),
-  }, h("span", { html: ICONS.download }), "Export") : null;
+  }, h("span", { html: ICONS.download }), "Export");
 
-  const manageLink = isAdmin
-    ? h("a", { class: "btn ghost mobile-action", href: `#/t/${teamId}/admin`, "data-tip": "Manage boards, trash, and team deletion", "data-tip-align": "right" }, "Manage")
-    : null;
-
-  // Members is its own topbar button: the roster is the one thing every member can
-  // open, so it must not live only inside the narrow-screen menu
-  const membersBtn = h("button", {
-    class: "btn ghost mobile-action", "data-tip": "Who is in this team, and what they can do", "data-tip-align": "right",
-    onclick: () => showMembersDialog(teamId, session.isAdminOf(teamId)),
-  }, h("span", { html: ICONS.user }), "Members");
+  const manageLink = h("a", { class: "btn ghost mobile-action", href: `#/t/${teamId}/admin`, "data-tip": "Manage boards, trash, and team deletion", "data-tip-align": "right" }, "Manage");
 
   const teamMoreBtn = h("button", {
     class: "btn ghost mobile-more",
     onclick: () => showMobileMenu([
       { label: "Team link", icon: ICONS.link, onclick: () => teamLinkBtn.click() },
-      isAdmin ? { label: "Export", icon: ICONS.download, onclick: () => exportBtn.click() } : null,
-      isAdmin ? { label: "Manage", icon: ICONS.trash, onclick: () => location.hash = `#/t/${teamId}/admin` } : null,
-      { label: "Members", icon: ICONS.user, onclick: () => showMembersDialog(teamId, isAdmin) },
-    ].filter(Boolean))
+      { label: "Export", icon: ICONS.download, onclick: () => exportBtn.click() },
+      { label: "Manage", icon: ICONS.trash, onclick: () => location.hash = `#/t/${teamId}/admin` },
+    ])
   }, h("span", { html: ICONS.more }));
 
   const head = h("nav", { class: "topbar" },
     h("a", { class: "back", href: "#/" }, h("span", { html: ICONS.back }), "Teams"),
-    isAdmin
-      ? h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, team.name)
-      : h("h1", { class: "board-title team-title readonly" }, team.name),
+    h("h1", { class: "board-title team-title", "data-tip": "Click to rename the team", onclick: startTeamEdit }, team.name),
     h("div", { class: "spacer" }),
     teamMoreBtn,
-    membersBtn,
     teamLinkBtn,
     exportBtn,
     manageLink,
@@ -807,20 +509,6 @@ async function renderTeamAdmin(seq = routeSeq, teamId) {
   document.title = "Manage boards · Free Retro";
   $app.replaceChildren(h("div", { class: "home" }));
   const root = $app.firstChild;
-
-  // The server refuses these calls anyway; this is only so a member following a
-  // stale link gets an explanation instead of a wall of errors.
-  await loadSession();
-  if (!session.isAdminOf(teamId)) {
-    root.append(
-      h("div", { class: "admin-head" },
-        h("a", { class: "back-link", href: `#/t/${teamId}` }, h("span", { html: ICONS.back }), "Back to team"),
-        h("h1", { class: "admin-title" }, "Admins only"),
-        h("p", { class: "admin-sub" }, "Managing boards, the trash and the team itself is limited to team admins."),
-      ),
-    );
-    return;
-  }
 
   root.append(
     h("div", { class: "admin-head" },
@@ -1045,9 +733,6 @@ function fmtRemain() {
 }
 
 function buildTimerControl() {
-  // Starting or stopping the timer changes what everyone in the room sees, so it
-  // belongs to the board owner and team admins, not to every reader.
-  if (state.can.can_control_timer === 0) return h("span", { class: "timer-wrap hidden" });
   const menu = h("div", { class: "timer-menu hidden" });
   const btn = h("button", { class: "btn ghost", "data-tip": "Silent-writing timer — hide notes while the team writes" },
     h("span", { html: ICONS.clock }), "Timer");
@@ -1227,7 +912,6 @@ async function loadBoard(id, seq = routeSeq) {
 
   state.board = data.board;
   state.notes = data.notes;
-  state.can = data.me || {};   // capability set for this viewer, from the server
   state.pollFailures = 0;
   state.timerEndsAt = data.board.timer_ends_at || null;
   state.serverOffset = (data.now || Date.now()) - Date.now();
@@ -1237,19 +921,16 @@ async function loadBoard(id, seq = routeSeq) {
   applyTimerState();
   connectBoardWS(id);
 
-  // a signed-in visitor's name comes from their account, so the prompt is only
-  // for anonymous contributors
-  if (!store.name && !session.signedIn) showNameModal();
+  if (!store.name) showNameModal();
 }
 
 function renderBoardShell() {
   const b = state.board;
 
-  // title (click to edit — only for the board owner and team admins)
-  const canRename = !!state.can.can_rename;
+  // title (click to edit)
   const titleEl = h("h1", {
-    class: "board-title" + (canRename ? "" : " readonly"),
-    ...(canRename ? { "data-tip": "Click to rename the board", onclick: startTitleEdit } : {}),
+    class: "board-title", "data-tip": "Click to rename the board",
+    onclick: startTitleEdit,
   }, b.title);
 
   const shareBtn = h("button", {
@@ -1259,17 +940,9 @@ function renderBoardShell() {
     },
   }, h("span", { html: ICONS.link }), "Share");
 
-  // Signed in: an account menu (display name, sign out). Visitor: the local name
-  // prompt, which only ever affects how this browser signs its notes.
-  const meLabel = session.signedIn ? (session.user.name || "Account") : (store.name || "Set your name");
-  const meBtn = h("button", {
-    class: "me-chip mobile-action",
-    "data-tip": session.signedIn ? "Your account" : "Change your name",
-    "data-tip-align": "right",
-    onclick: () => (session.signedIn ? showAccountMenu() : showNameModal()),
-  },
-    h("span", { class: "avatar", style: `--av: hsl(${avatarHue(meLabel)}, 70%, 72%)` }, initialsOf(meLabel)),
-    meLabel,
+  const meBtn = h("button", { class: "me-chip mobile-action", "data-tip": "Change your name", "data-tip-align": "right", onclick: () => showNameModal() },
+    h("span", { class: "avatar", style: `--av: hsl(${avatarHue(store.name)}, 70%, 72%)` }, initialsOf(store.name)),
+    store.name || "Set your name",
   );
 
   const timerControl = buildTimerControl();
@@ -1279,19 +952,16 @@ function renderBoardShell() {
   const namesToggle = buildNamesToggle();
   if (namesToggle.classList) namesToggle.classList.add("mobile-action");
 
-  const visChip = buildVisibilityChip();
-
   const moreBtn = h("button", {
     class: "btn ghost mobile-more",
     onclick: () => showMobileMenu([
       // the timer control itself is hidden on narrow screens, so open its
       // dropdown instead of duplicating the 5/8/10-minute choices here
-      ...[state.can.can_control_timer === 0 ? null : { label: "Timer", icon: ICONS.clock, onclick: () => timerBtn.click() }],
+      { label: "Timer", icon: ICONS.clock, onclick: () => timerBtn.click() },
       { label: "Share", icon: ICONS.link, onclick: () => shareBtn.click() },
       { label: "Show Names", icon: ICONS.user, onclick: () => namesToggle.click() },
-      ...[session.signedIn ? null : { label: "Set your name", icon: ICONS.pencil, onclick: () => showNameModal() }],
-      visChip ? { label: visChip.dataset.label, icon: ICONS.lock, onclick: () => visChip.click() } : null,
-    ].filter(Boolean))
+      { label: "Change Name", icon: ICONS.pencil, onclick: () => showNameModal() },
+    ])
   }, h("span", { html: ICONS.more }));
 
   const topbar = h("nav", { class: "topbar" },
@@ -1300,7 +970,6 @@ function renderBoardShell() {
     h("div", { class: "spacer" }),
     moreBtn,
     timerControl,
-    visChip,
     shareBtn,
     namesToggle,
     meBtn,
@@ -1357,8 +1026,6 @@ function startTitleEdit() {
 // ---------- columns & composer ----------
 function buildColumn(col) {
   const notesWrap = h("div", { class: "notes", dataset: { column: col.key } });
-  // a trashed board is open for inspection only
-  if (state.can.trashed) return notesWrap;
 
   const composerColor = { went_well: "green", to_improve: "orange", actions: "blue" }[col.key];
 
@@ -1401,12 +1068,7 @@ function buildColumn(col) {
       updated_at: Date.now(),
       vote_count: 0,
       voted: 0,
-      // the server sends the authoritative capability set on the next sync; these
-      // are just so the buttons are there the instant the note appears
       mine: 1,
-      can_edit: 1,
-      can_delete: 1,
-      can_move: 1,
       _entering: true,
     };
     state.notes.push(temp);
@@ -1580,10 +1242,7 @@ function findDropTarget(clientX, clientY, draggedCard) {
   const cards = [...column.querySelectorAll(".note")].filter((c) => !c.classList.contains("drag-source"));
   for (const c of cards) {
     const r = c.getBoundingClientRect();
-    // dropping onto the middle of another note means "merge" — only offered to the
-    // board owner (rule 8: merging deletes the other note, and a team admin does
-    // not get merge)
-    if (state.can.can_merge && clientY >= r.top + r.height * 0.25 && clientY <= r.top + r.height * 0.75) {
+    if (clientY >= r.top + r.height * 0.25 && clientY <= r.top + r.height * 0.75) {
       return { type: "merge", columnKey, mergeWithId: c.dataset.id, mergeWithEl: c, columnEl: column };
     }
     if (clientY < r.top + r.height / 2) {
@@ -1667,41 +1326,29 @@ function noteCard(note) {
         h("span", { class: "a-name" }, note.author))
     : h("span", { class: "note-author anon" }, "anonymous");
 
-  // The server sends a capability set per note. Hiding a button is a courtesy, not
-  // a control — every one of these endpoints re-checks the same rule.
-  const canEdit = !!note.can_edit;
-  const canDelete = !!note.can_delete;
-  const canMove = !!note.can_move;
-
-  // vote — everyone who can read the board has an identity to vote with
-  const voteBtn = state.can.can_vote === 0 ? null : h("button", {
+  // vote
+  const voteBtn = h("button", {
     class: "vote" + (note.voted ? " voted" : ""),
     "aria-label": note.voted ? "Remove your vote" : "Vote for this note",
     onclick: () => toggleVote(note.id),
   }, h("span", { html: ICONS.heart }), note.vote_count > 0 ? String(note.vote_count) : "");
 
-  const editBtn = canEdit
-    ? h("button", { class: "tool-btn edit", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
-        h("span", { html: ICONS.pencil }))
-    : null;
+  // edit + delete are open to everyone (trusted-team model, like dragging)
+  const editBtn = h("button", { class: "tool-btn edit", "aria-label": "Edit this note", onclick: () => startEdit(note, card, textEl) },
+    h("span", { html: ICONS.pencil }));
 
-  // drag grip: same tier as writing a note, and it can only reorder within this
-  // board — a note cannot be carried into another board
-  if (canMove) {
-    const grip = h("button", { class: "drag-grip", "data-tip": "Drag to move this note", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
-    grip.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      try { grip.setPointerCapture(e.pointerId); } catch {}
-      startDrag(e, note, card);
-    });
-    card.prepend(grip);
-  }
+  // drag grip: anyone can move any note (drag is open by design)
+  const grip = h("button", { class: "drag-grip", "data-tip": "Drag to move this note", "aria-label": "Drag to move" }, h("span", { html: ICONS.grip }));
+  grip.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { grip.setPointerCapture(e.pointerId); } catch {}
+    startDrag(e, note, card);
+  });
+  card.prepend(grip);
 
   // delete (two-step confirm)
-  const delBtn = canDelete
-    ? h("button", { class: "tool-btn del", "aria-label": "Delete note", onclick: () => confirmDelete(note, delBtn) },
-        h("span", { html: ICONS.trash }))
-    : null;
+  const delBtn = h("button", { class: "tool-btn del", "aria-label": "Delete note", onclick: () => confirmDelete(note, delBtn) },
+    h("span", { html: ICONS.trash }));
   let confirmTimer;
   function confirmDelete(note, btn) {
     if (btn.classList.contains("confirm")) {
@@ -1833,7 +1480,6 @@ async function refreshBoard() {
       state.notes = data.notes;
       renderNotes();
     }
-    if (data.me) state.can = data.me;   // a role change takes effect on the next sync
     state.serverOffset = (data.now || Date.now()) - Date.now();
     const prevTimer = state.timerEndsAt;
     state.timerEndsAt = data.board.timer_ends_at || null;
@@ -1978,6 +1624,60 @@ function showNameModal() {
   document.body.append(overlay);
   input.focus();
   input.select();
+}
+
+// ---------- site passcode gate ----------
+function showGate() {
+  if (document.getElementById("gate")) return;
+  document.title = "Locked · Free Retro";
+  const input = h("input", {
+    type: "password", placeholder: "Passcode", "aria-label": "Site passcode",
+    autocomplete: "current-password",
+    onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) unlock(); },
+  });
+  const err = h("p", { class: "gate-err hidden" }, "Wrong passcode — try again");
+  const btn = h("button", { class: "btn accent", onclick: unlock }, "Unlock");
+  let busy = false;
+  async function unlock() {
+    if (busy) return;
+    busy = true;
+    btn.disabled = true;
+    err.classList.add("hidden");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ passcode: input.value }),
+      });
+      if (res.ok) {
+        document.getElementById("gate").remove();
+        document.title = "Free Retro — quick retrospective boards";
+        route();
+        return;
+      }
+      err.textContent = "Wrong passcode — try again";
+      err.classList.remove("hidden");
+      input.value = "";
+      input.focus();
+    } catch {
+      err.textContent = "Couldn't reach the server — try again";
+      err.classList.remove("hidden");
+    }
+    btn.disabled = false;
+    busy = false;
+  }
+  document.body.append(
+    h("div", { class: "overlay gate", id: "gate" },
+      h("div", { class: "name-card gate-card" },
+        h("div", { class: "gate-lock", html: ICONS.lock }),
+        h("h3", {}, "This space is locked"),
+        h("p", {}, "Enter the site passcode to view and run retros."),
+        input,
+        err,
+        btn,
+      ),
+    ),
+  );
+  input.focus();
 }
 
 // ---------- export functionality ----------
@@ -2262,9 +1962,11 @@ function showMobileMenu(items) {
 
 // ---------- boot ----------
 async function boot() {
-  // The session only affects which buttons appear — every page renders for a
-  // visitor too, so a failure here must not block the app.
-  await loadSession();
-  route();
+  try {
+    await api("/api/auth/check");
+    route();
+  } catch {
+    showGate(); // api() already rendered the gate on 401
+  }
 }
 boot();
