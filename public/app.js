@@ -404,9 +404,7 @@ async function showMembersDialog(teamId, isAdmin) {
         h("span", { class: "avatar", style: `--av: hsl(${avatarHue(label)}, 70%, 72%)` }, initialsOf(label)),
         h("span", { class: "members-name" }, label, m.user_id === me ? h("span", { class: "members-you" }, " you") : null),
         h("span", { class: "members-badge" + (m.role === "admin" ? " admin" : "") }, isLastAdmin ? "admin · last one" : m.role),
-        // controls get their own line: a 400px card cannot fit an avatar, a name,
-        // a role badge and two buttons on one row without squeezing the name away
-        controls.length ? h("span", { class: "members-controls" }, ...controls) : null,
+        ...controls,
       );
     }));
   }
